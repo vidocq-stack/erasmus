@@ -14,12 +14,19 @@
 
     <groupId>io.vidocq.erasmus</groupId>
     <artifactId>erasmus-parent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.3.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Erasmus</name>
-    <description>Jakarta Validation 3.1 implementation for the Vidocq runtime — zero third-party dependency, strict Java Modules, static code generation first, CDI via Vauban</description>
+    <description>Jakarta Bean Validation 3.1 implementation — zero third-party dependency, virtual threads, strict Java Modules, static constraint-dispatch codegen via APT</description>
     <url>https://codeberg.org/Vidocq/erasmus</url>
+
+    <developers>
+        <developer>
+            <name>Yann Blazart</name>
+            <email>yann.blazart@gmail.com</email>
+        </developer>
+    </developers>
 
     <!--
         Disjunctive triple license: a recipient may use this software under
@@ -52,8 +59,179 @@
         <developerConnection>scm:git:git@codeberg.org:Vidocq/erasmus.git</developerConnection>
     </scm>
 
-    <!-- Modules will be added as the implementation takes shape
-         (erasmus-api repackaging if needed, erasmus-core, erasmus-cdi-vauban, …). -->
+    <properties>
+        <!-- Jakarta Bean Validation 3.1 spec API — already modular upstream (module jakarta.validation),
+             no Vidocq fork needed (unlike knock-mp-health-api). -->
+        <jakarta.validation.version>3.1.1</jakarta.validation.version>
+
+        <!-- CDI integration (erasmus-cdi-vauban) -->
+        <jakarta.cdi.version>4.1.0</jakarta.cdi.version>
+        <jakarta.inject.version>2.0.1</jakarta.inject.version>
+        <jakarta.annotation.version>3.0.0</jakarta.annotation.version>
+
+        <!-- Jakarta REST integration (erasmus-jaxrs) -->
+        <jakarta.ws.rs.version>4.0.0</jakarta.ws.rs.version>
+
+        <!-- Vidocq upstreams (referenced via properties to allow cross-repo PR overrides) -->
+        <vauban.version>0.3.0-SNAPSHOT</vauban.version>
+        <champollion.version>0.3.0-SNAPSHOT</champollion.version>
+        <cassini.version>0.3.0-SNAPSHOT</cassini.version>
+
+        <jmh.version>1.37</jmh.version>
+    </properties>
+
+    <!--
+        Main reactor modules. erasmus-tck joins the reactor only under the `tck`
+        Maven profile (see <profiles> below) — TCK harmonisation, same pattern
+        as the vidocq-runtime-tck-* runners and every other sub-project of this
+        workspace: a regular `mvn install` neither builds nor downloads the TCK
+        harness. Activation: ./mvnw -Ptck -pl erasmus-tck test
+        (or through run-official-tck-bean-validation-3.1.sh).
+    -->
     <modules>
+        <module>erasmus-api</module>
+        <module>erasmus-core</module>
+        <module>erasmus-codegen-apt</module>
+        <module>erasmus-codegen-maven-plugin</module>
+        <module>erasmus-cdi-vauban</module>
+        <module>erasmus-jaxrs</module>
+        <module>erasmus-bench</module>
+        <module>erasmus-examples</module>
     </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Jakarta Bean Validation 3.1 -->
+            <dependency>
+                <groupId>jakarta.validation</groupId>
+                <artifactId>jakarta.validation-api</artifactId>
+                <version>${jakarta.validation.version}</version>
+            </dependency>
+
+            <!-- CDI -->
+            <dependency>
+                <groupId>jakarta.enterprise</groupId>
+                <artifactId>jakarta.enterprise.cdi-api</artifactId>
+                <version>${jakarta.cdi.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>jakarta.inject</groupId>
+                <artifactId>jakarta.inject-api</artifactId>
+                <version>${jakarta.inject.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>jakarta.annotation</groupId>
+                <artifactId>jakarta.annotation-api</artifactId>
+                <version>${jakarta.annotation.version}</version>
+            </dependency>
+
+            <!-- Jakarta REST (implementation: Cassini) -->
+            <dependency>
+                <groupId>jakarta.ws.rs</groupId>
+                <artifactId>jakarta.ws.rs-api</artifactId>
+                <version>${jakarta.ws.rs.version}</version>
+            </dependency>
+
+            <!-- Runtime implementations (Vidocq) - versions via properties so
+                 the cross-repo PR mechanism can override them. -->
+            <dependency>
+                <groupId>io.vidocq.champollion</groupId>
+                <artifactId>champollion-jsonp</artifactId>
+                <version>${champollion.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vidocq.cassini</groupId>
+                <artifactId>cassini-core</artifactId>
+                <version>${cassini.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vidocq.vauban</groupId>
+                <artifactId>vauban-api</artifactId>
+                <version>${vauban.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vidocq.vauban</groupId>
+                <artifactId>vauban-core</artifactId>
+                <version>${vauban.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vidocq.vauban</groupId>
+                <artifactId>vauban-classloader-spi</artifactId>
+                <version>${vauban.version}</version>
+            </dependency>
+
+            <!-- JMH -->
+            <dependency>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-core</artifactId>
+                <version>${jmh.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-generator-annprocess</artifactId>
+                <version>${jmh.version}</version>
+            </dependency>
+
+            <!-- Internal Erasmus modules -->
+            <dependency>
+                <groupId>io.vidocq.erasmus</groupId>
+                <artifactId>erasmus-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vidocq.erasmus</groupId>
+                <artifactId>erasmus-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vidocq.erasmus</groupId>
+                <artifactId>erasmus-codegen-apt</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vidocq.erasmus</groupId>
+                <artifactId>erasmus-codegen-maven-plugin</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vidocq.erasmus</groupId>
+                <artifactId>erasmus-cdi-vauban</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vidocq.erasmus</groupId>
+                <artifactId>erasmus-jaxrs</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-plugin-plugin</artifactId>
+                    <version>4.0.0-beta-2</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <profiles>
+        <!--
+            TCK harmonisation: the official Jakarta Bean Validation 3.1 TCK
+            runner joins the reactor only when this profile is active.
+
+                ./mvnw -Ptck -pl erasmus-tck test
+
+            run-official-tck-bean-validation-3.1.sh remains the friendly wrapper (see M8/ROADMAP.md).
+        -->
+        <profile>
+            <id>tck</id>
+            <modules>
+                <module>erasmus-tck</module>
+            </modules>
+        </profile>
+    </profiles>
 </project>

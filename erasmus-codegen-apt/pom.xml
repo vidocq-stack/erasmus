@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.vidocq.erasmus</groupId>
+        <artifactId>erasmus-parent</artifactId>
+        <version>0.3.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>erasmus-codegen-apt</artifactId>
+    <name>Erasmus :: Codegen APT</name>
+    <description>Annotation Processor : génère, à la compilation, un dispatcher de contraintes statique par bean annoté — remplace la réflexion runtime du chemin de repli erasmus-core (voir ROADMAP M5)</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.vidocq.erasmus</groupId>
+            <artifactId>erasmus-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.vidocq.erasmus</groupId>
+        <artifactId>erasmus-parent</artifactId>
+        <version>0.3.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>erasmus-cdi-vauban</artifactId>
+    <name>Erasmus :: CDI (Vauban)</name>
+    <description>Intégration CDI : Validator/ValidatorFactory en beans CDI, interception @ValidateOnExecution, ConstraintValidator gérés par le conteneur — voir ROADMAP M7 (placeholder pour l'instant)</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.vidocq.erasmus</groupId>
+            <artifactId>erasmus-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

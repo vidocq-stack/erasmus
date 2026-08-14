@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    erasmus-tck — placeholder for the official Jakarta Bean Validation 3.1 TCK runner.
+
+    In-reactor module gated by the `tck` Maven profile of erasmus-parent (TCK
+    harmonisation — same pattern as every other Vidocq sub-project): a plain
+    `mvn install` neither downloads nor runs anything TCK-related.
+
+    ROADMAP M8 spikes the TCK's actual distribution shape (Maven Central
+    coordinates vs. build-from-source, and whether the suite needs an
+    Arquillian container at all — see ROADMAP.md's "Known risks") before this
+    module gets real content.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.vidocq.erasmus</groupId>
+        <artifactId>erasmus-parent</artifactId>
+        <version>0.3.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>erasmus-tck</artifactId>
+    <name>Erasmus :: TCK</name>
+    <description>Official Jakarta Bean Validation 3.1 TCK runner — placeholder, see ROADMAP M8</description>
+
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <maven.install.skip>true</maven.install.skip>
+        <maven.javadoc.skip>true</maven.javadoc.skip>
+        <maven.source.skip>true</maven.source.skip>
+        <gpg.skip>true</gpg.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.vidocq.erasmus</groupId>
+            <artifactId>erasmus-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
