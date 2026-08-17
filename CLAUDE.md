@@ -206,6 +206,17 @@ real numbers (recorded in `BENCH.md`, not created yet).
 
 > When you change these documentation rules, keep `AGENTS.md` and `CLAUDE.md` in sync.
 
+## Making-of blog series
+
+`MAKING-OF.md` (root) is the index of a per-milestone, blog-style build log under
+`doc/making-of/` — kept for new contributors and anyone curious how the project came
+together, separate from the Antora docs above. Before adding or editing a post, read
+`doc/making-of/AGENTS.md`: one post per milestone (or milestone group), the exact opening
+shape (recap paragraph, then the milestone's `ROADMAP.md` Scope spec/Deliverable quoted
+verbatim), the "pick 1-2 real examples backed by an actually-run test" rule, and why each
+post's closing "Where it stands now"/"What's next" is a frozen snapshot rather than a living
+summary.
+
 ## Terminology
 
 Use **Java Modules** (or **Java module** for a single module) when referring to
