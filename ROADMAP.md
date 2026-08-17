@@ -130,21 +130,27 @@ its keep on a reflection-heavy engine like this one):**
 
 ---
 
-### M2 — Full built-in constraint set + message interpolation
+### M2 — Full built-in constraint set + message interpolation 🚧 (partial)
 
 **Scope spec:** remaining built-in constraints, message interpolation with EL-subset support.
 
-| Task | Notes |
-|---|---|
-| Remaining built-in constraints | `@DecimalMin`/`@DecimalMax`, `@Digits`, `@Pattern`, `@Email`, `@Past`/`@PastOrPresent`, `@Future`/`@FutureOrPresent`, `@Positive`/`@PositiveOrZero`, `@Negative`/`@NegativeOrZero`, `@AssertTrue`/`@AssertFalse`. |
-| Default resource bundles | `ValidationMessages.properties` + locale-specific variants, resolved across the module boundary (`ResourceBundle` + explicit `module-info` opens where unavoidable, documented if so). |
-| Homegrown minimal EL-subset interpolator | Parses `{value}` style message templates plus the small predefined-EL grammar the spec requires (property access, simple boolean/arithmetic expressions) — no `jakarta.el` dependency, no third-party EL engine. Document the supported grammar explicitly in an ADR. |
-| `Payload` support | Pass-through on `ConstraintDescriptor.getPayload()`. |
-| Custom constraint authoring | `@Constraint(validatedBy = ...)`, composed constraints (`@ReportAsSingleViolation`), multiple `ConstraintValidator`s for different target types on one annotation. |
+| Task | Notes | Status |
+|---|---|---|
+| Remaining built-in constraints | `@AssertTrue`/`@AssertFalse`; `@Positive`/`@PositiveOrZero`/`@Negative`/`@NegativeOrZero` (Number, floating-point supported — unlike Min/Max, a sign check has no precision problem); `@DecimalMin`/`@DecimalMax` (Number + CharSequence, floating-point excluded, `inclusive` attribute); `@Digits` (Number + CharSequence, floating-point excluded); `@Pattern` (CharSequence, whole-string match, `Flag[]`); `@Email` (CharSequence, pragmatic non-RFC-5322 shape check + optional additional `regexp`); `@Past`/`@PastOrPresent`/`@Future`/`@FutureOrPresent` for `Instant`/`LocalDate`/`java.util.Date` only — **`LocalDateTime`, `LocalTime`, `ZonedDateTime`, `OffsetDateTime`, `OffsetTime`, `Year`, `YearMonth`, `MonthDay`, `Calendar`, and the non-ISO chronology date types (`HijrahDate`, `JapaneseDate`, `MinguoDate`, `ThaiBuddhistDate`) are a deliberate, documented gap** — same "narrow the target-type set, document the rest" pattern as M1's `Object[]`-only array constraints. 26 new validator classes, 58 tests total (up from 35). | ✅ (narrowed scope) |
+| `Payload` support | `ConstraintDescriptorImpl.getPayload()` now reads the annotation's `payload()` attribute instead of returning an empty set unconditionally. | ✅ |
+| Default resource bundles + locale variants | Only the default (no-locale) bundle exists; no `ValidationMessages_fr.properties` or similar yet. | ❌ not started |
+| Homegrown minimal EL-subset interpolator | `{attribute}` substitution and bundle-key resolution (from M1) still cover every built-in constraint added here — none of their default messages need real EL. The `${...}` grammar itself remains unimplemented. | ❌ not started |
+| Custom constraint authoring | `@ReportAsSingleViolation`, composed constraints, a worked example — not started. | ❌ not started |
 
-**Deliverable:** all built-in constraints implemented and unit-tested; message
-interpolation passes a dedicated grammar test suite; custom constraint authoring works
-end-to-end with a hand-written example constraint.
+**Deliverable (partial):** all built-in constraints implemented and unit-tested for the
+narrowed target-type set above. Message interpolation, `Payload`, and custom constraint
+authoring remain for a follow-up pass within M2.
+
+**A naming-collision gotcha worth remembering:** a JUnit test method named `assertTrue()` in
+the same class as a `static import Assertions.assertTrue` silently breaks — Java hides
+*every* statically-imported overload of a name the instant the class declares its own method
+of that name, regardless of differing arity. `AssertBooleanValidatorTest` renamed its methods
+to `assertTrueConstraint()`/`assertFalseConstraint()` to sidestep it.
 
 ---
 

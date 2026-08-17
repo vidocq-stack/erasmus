@@ -41,8 +41,9 @@ import java.util.Set;
  * pair by {@link ConstraintMetadataBuilder} and cached in {@code BeanMetadata}.
  *
  * <p>Composed constraints ({@code getComposingConstraints()}) and explicit
- * {@code groups}/{@code payload} attributes are out of scope until ROADMAP M2/M3
- * — every constraint is currently reported under the {@link Default} group only.
+ * {@code groups} are out of scope until ROADMAP M3 — every constraint is currently
+ * reported under the {@link Default} group only. {@code payload} is read through
+ * (ROADMAP M2).
  */
 public final class ConstraintDescriptorImpl<A extends Annotation> implements ConstraintDescriptor<A> {
 
@@ -104,8 +105,10 @@ public final class ConstraintDescriptorImpl<A extends Annotation> implements Con
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Set<Class<? extends Payload>> getPayload() {
-        return Set.of();
+        Class<? extends Payload>[] payload = (Class<? extends Payload>[]) attributes.get("payload");
+        return payload == null ? Set.of() : Set.of(payload);
     }
 
     @Override
