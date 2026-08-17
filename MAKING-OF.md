@@ -5,15 +5,6 @@ starts, and the early implementation work — kept here for new contributors, or
 curious how it came together. Written in a blog-ish style rather than as formal docs;
 may still turn into an actual blog post at some point.*
 
-One thing worth explaining upfront, since it comes up constantly below: every `M0`/`M1`/
-`M2`/... label in this document refers to a milestone defined in
-[`ROADMAP.md`](https://codeberg.org/Vidocq/erasmus/src/branch/main/ROADMAP.md) — a file
-that lives in this same repository, not some external planning tool. Claude wrote it during
-the very first prompt of this whole project (see "Prompt 1" below) and reads it back at the
-start of every session to know what's already done and what to pick up next. The milestones
-aren't invented on the fly session by session — they were laid out once, up front, before a
-single line of Java existed, and everything since has been ticking through that same plan.
-
 ## The context
 
 The Vidocq project is a from-scratch reimplementation of the Jakarta EE and MicroProfile
@@ -191,6 +182,20 @@ design principles, a recap of the actual Bean Validation 3.1 spec chapters, mile
 through `M11`, and a dedicated section on the official TCK, since that was explicitly what
 I'd asked for.
 
+### Where did `M0`/`M1`/`M2`... actually come from?
+
+Simpler than it might look: the prompt above already asked for it directly — "create a
+roadmap file containing the plan for implementing and supporting the bean validation tck."
+`AGENTS.md` has nothing to do with the milestone structure (it's just Antora doc-site
+conventions and a terminology rule). Two separate things happened to carry out that one
+instruction: the `M0`/`M1`/`M2` *heading style* is mirrored from how sibling projects like
+`knock` and `champollion` already structure their own `ROADMAP.md` files (each already uses
+that exact `### M0 — Bootstrap`, `### M1 — Core: ...` convention) — but what actually went
+*into* each milestone isn't just copied structure. That came from mapping the real Bean
+Validation 3.1 spec's own chapters (bootstrapping, constraint declaration, cascading,
+groups, container-element constraints, executable validation, ...) onto that milestone
+shape. So: the format is borrowed, the content is the spec.
+
 What I found genuinely useful, though, was what came *after* the files — Claude flagged a
 few things back to me instead of just declaring the plan done:
 
@@ -221,6 +226,14 @@ No `pom.xml`, no Java yet, on purpose. Then, next prompt:
 — which is where the actual engine work below happened.
 
 ## M0: the boring-but-necessary part
+
+What [`ROADMAP.md`](https://codeberg.org/Vidocq/erasmus/src/branch/main/ROADMAP.md) actually
+says for this one, verbatim (it now carries the ✅/checkbox status too, since the file gets
+updated in place as work lands rather than kept as a frozen original plan):
+
+> **Deliverable:** empty-but-buildable reactor, provider resolvable via `ServiceLoader`. ✅
+> Confirmed: `./mvnw -ntp install` and `./mvnw -ntp -Ptck install` both succeed on a clean
+> reactor.
 
 M0 is just scaffolding: a Maven reactor with one module per concern —
 
@@ -277,6 +290,15 @@ annotation processor, and so on, each at its own milestone in `ROADMAP.md`. Righ
 just correctly-shaped boxes waiting for their contents.
 
 ## M1: the actual engine — and where it got interesting
+
+From `ROADMAP.md`:
+
+> **Scope spec:** bootstrapping, constraint declaration, a first slice of built-in
+> constraints.
+>
+> **Deliverable:** `validator.validate(bean)` returns correct `ConstraintViolation`s for a
+> flat bean (no cascading, no groups yet) using the first 6 built-in constraints. ✅
+> Confirmed by `ErasmusValidatorTest` (11 tests) plus 24 direct validator unit tests.
 
 M1's goal: make `validator.validate(person)` really work, for a first batch of six built-in
 constraints (`@NotNull`, `@NotEmpty`, `@NotBlank`, `@Size`, `@Min`, `@Max`):
@@ -553,6 +575,15 @@ executed" for those. Simplest fix: `cd` into `erasmus-core` first, like above.)
 
 ## M2: the rest of the built-in constraints
 
+From `ROADMAP.md`:
+
+> **Scope spec:** remaining built-in constraints, message interpolation with EL-subset
+> support.
+>
+> **Deliverable (partial):** all built-in constraints implemented and unit-tested for the
+> narrowed target-type set above. Message interpolation, `Payload`, and custom constraint
+> authoring remain for a follow-up pass within M2.
+
 M1 shipped 6 of Bean Validation 3.1's 21 built-in constraints. M2's goal — still in
 progress — is closing that gap: `@AssertTrue`/`@AssertFalse`, the whole
 `@Positive`/`@PositiveOrZero`/`@Negative`/`@NegativeOrZero` family, `@DecimalMin`/`@DecimalMax`,
@@ -698,10 +729,11 @@ just a takeaway in this draft, not a real section in `CONTRIBUTING.md` yet.
 
 ## Why I'm writing this down
 
-Two of the three engine surprises (the empty `validatedBy()`, the split-package resource
+Most of the engine surprises above (the empty `validatedBy()`, the split-package resource
 file) aren't the kind of thing you'd find by reading a "getting started with Bean
 Validation" guide — they only show up once you're the one *implementing* the spec instead
 of consuming it. And the tooling detour at the very start is its own small lesson: half the
 friction in a project like this happens before the first line of Java, in the gap between
-"clone the repo" and "actually able to commit to it." Worth writing up properly once there's
-more of the picture to show.
+"clone the repo" and "actually able to commit to it." Neither kind of lesson gets written
+down anywhere else, which is the actual reason this document exists — kept going milestone
+by milestone as the project grows, rather than saved for some future "real" write-up.
