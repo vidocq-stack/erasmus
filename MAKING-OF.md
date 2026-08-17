@@ -5,6 +5,15 @@ starts, and the early implementation work — kept here for new contributors, or
 curious how it came together. Written in a blog-ish style rather than as formal docs;
 may still turn into an actual blog post at some point.*
 
+One thing worth explaining upfront, since it comes up constantly below: every `M0`/`M1`/
+`M2`/... label in this document refers to a milestone defined in
+[`ROADMAP.md`](https://codeberg.org/Vidocq/erasmus/src/branch/main/ROADMAP.md) — a file
+that lives in this same repository, not some external planning tool. Claude wrote it during
+the very first prompt of this whole project (see "Prompt 1" below) and reads it back at the
+start of every session to know what's already done and what to pick up next. The milestones
+aren't invented on the fly session by session — they were laid out once, up front, before a
+single line of Java existed, and everything since has been ticking through that same plan.
+
 ## The context
 
 The Vidocq project is a from-scratch reimplementation of the Jakarta EE and MicroProfile
