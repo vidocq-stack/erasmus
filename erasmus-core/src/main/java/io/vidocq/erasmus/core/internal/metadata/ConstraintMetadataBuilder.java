@@ -20,6 +20,7 @@
 package io.vidocq.erasmus.core.internal.metadata;
 
 import jakarta.validation.Constraint;
+import jakarta.validation.Valid;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
@@ -27,18 +28,21 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Reflective constraint metadata builder — the fallback path (ROADMAP design
  * principles table: "Maximum static code generation"). Walks a bean class's
  * field hierarchy and public getters, collecting any annotation itself
  * meta-annotated {@code @Constraint} — generically, so every future built-in
- * or custom constraint (ROADMAP M2 onward) works with zero change here.
+ * or custom constraint (ROADMAP M2 onward) works with zero change here — plus
+ * whether the property carries {@code @Valid} (ROADMAP M3 cascading).
  *
- * <p>Cascading (@Valid), groups, and container-element constraints are not yet
- * resolved at this layer — see ROADMAP M3/M4.
+ * <p>Groups are resolved per-{@link ConstraintDescriptorImpl}, not here.
+ * Container-element constraints are not yet resolved at this layer — see ROADMAP M4.
  */
 public final class ConstraintMetadataBuilder {
 
@@ -48,6 +52,7 @@ public final class ConstraintMetadataBuilder {
     public static BeanMetadata build(Class<?> beanClass) {
         Map<String, PropertyAccessor> accessorByProperty = new LinkedHashMap<>();
         Map<String, List<ConstraintDescriptorImpl<?>>> constraintsByProperty = new LinkedHashMap<>();
+        Set<String> cascadedProperties = new LinkedHashSet<>();
 
         for (Class<?> type = beanClass; type != null && type != Object.class; type = type.getSuperclass()) {
             for (Field field : type.getDeclaredFields()) {
@@ -55,12 +60,16 @@ public final class ConstraintMetadataBuilder {
                     continue;
                 }
                 List<ConstraintDescriptorImpl<?>> descriptors = constraintDescriptorsOf(field.getAnnotations());
-                if (descriptors.isEmpty()) {
+                boolean cascaded = isCascaded(field.getAnnotations());
+                if (descriptors.isEmpty() && !cascaded) {
                     continue;
                 }
                 String name = field.getName();
                 accessorByProperty.putIfAbsent(name, accessorFor(type, field));
                 constraintsByProperty.computeIfAbsent(name, key -> new ArrayList<>()).addAll(descriptors);
+                if (cascaded) {
+                    cascadedProperties.add(name);
+                }
             }
         }
 
@@ -70,17 +79,23 @@ public final class ConstraintMetadataBuilder {
                 continue;
             }
             List<ConstraintDescriptorImpl<?>> descriptors = constraintDescriptorsOf(method.getAnnotations());
-            if (descriptors.isEmpty()) {
+            boolean cascaded = isCascaded(method.getAnnotations());
+            if (descriptors.isEmpty() && !cascaded) {
                 continue;
             }
             accessorByProperty.putIfAbsent(propertyName, new MethodAccessor(method));
             constraintsByProperty.computeIfAbsent(propertyName, key -> new ArrayList<>()).addAll(descriptors);
+            if (cascaded) {
+                cascadedProperties.add(propertyName);
+            }
         }
 
         List<PropertyMetadata> properties = new ArrayList<>();
-        for (Map.Entry<String, List<ConstraintDescriptorImpl<?>>> entry : constraintsByProperty.entrySet()) {
+        for (String name : accessorByProperty.keySet()) {
             properties.add(new PropertyMetadata(
-                    entry.getKey(), accessorByProperty.get(entry.getKey()), List.copyOf(entry.getValue())));
+                    name, accessorByProperty.get(name),
+                    List.copyOf(constraintsByProperty.getOrDefault(name, List.of())),
+                    cascadedProperties.contains(name)));
         }
         return new BeanMetadata(beanClass, List.copyOf(properties));
     }
@@ -93,6 +108,15 @@ public final class ConstraintMetadataBuilder {
             }
         }
         return descriptors;
+    }
+
+    private static boolean isCascaded(Annotation[] annotations) {
+        for (Annotation annotation : annotations) {
+            if (annotation.annotationType() == Valid.class) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static PropertyAccessor accessorFor(Class<?> declaringType, Field field) {

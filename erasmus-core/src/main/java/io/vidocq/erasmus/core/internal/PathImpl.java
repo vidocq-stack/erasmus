@@ -21,23 +21,36 @@ package io.vidocq.erasmus.core.internal;
 
 import jakarta.validation.Path;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
- * A path made of a single property node. Multi-segment paths (cascaded graphs,
- * container-element nodes) land with ROADMAP M3/M4.
+ * A path made of one or more property nodes — extended, one segment at a time, as
+ * {@code @Valid} cascading descends into nested beans (ROADMAP M3). Container-element
+ * nodes (index/key-bearing segments) are M4's job.
  */
 final class PathImpl implements Path {
 
     private final List<Path.Node> nodes;
 
-    private PathImpl(Path.Node node) {
-        this.nodes = List.of(node);
+    private PathImpl(List<Path.Node> nodes) {
+        this.nodes = nodes;
     }
 
     static PathImpl ofProperty(String propertyName) {
-        return new PathImpl(new NodeImpl(propertyName));
+        return new PathImpl(List.of(new NodeImpl(propertyName)));
+    }
+
+    /**
+     * A new path with {@code propertyName} appended as the next segment — used when
+     * cascading into a nested bean's own property.
+     */
+    PathImpl append(String propertyName) {
+        List<Path.Node> extended = new ArrayList<>(nodes);
+        extended.add(new NodeImpl(propertyName));
+        return new PathImpl(List.copyOf(extended));
     }
 
     @Override
@@ -47,6 +60,6 @@ final class PathImpl implements Path {
 
     @Override
     public String toString() {
-        return nodes.get(0).getName();
+        return nodes.stream().map(Path.Node::getName).collect(Collectors.joining("."));
     }
 }
