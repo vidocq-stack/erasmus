@@ -542,25 +542,145 @@ from the *workspace root* with `-am` tries to run it against every reactor modul
 ones with zero tests, and Surefire fails loudly with "No tests matching pattern ... were
 executed" for those. Simplest fix: `cd` into `erasmus-core` first, like above.)
 
+## M2: the rest of the built-in constraints
+
+M1 shipped 6 of Bean Validation 3.1's 21 built-in constraints. M2's goal — still in
+progress — is closing that gap: `@AssertTrue`/`@AssertFalse`, the whole
+`@Positive`/`@PositiveOrZero`/`@Negative`/`@NegativeOrZero` family, `@DecimalMin`/`@DecimalMax`,
+`@Digits`, `@Pattern`, `@Email`, and `@Past`/`@PastOrPresent`/`@Future`/`@FutureOrPresent`.
+
+Where M1 was mostly about standing up the bootstrap machinery (the interesting part),
+M2 is largely the same pattern from M1 — one `ConstraintValidator` per (constraint, target
+type), registered in `BuiltinConstraints`, tested directly — repeated across a lot more
+annotations. Genuinely mechanical in most places, but a few of the constraints forced real
+decisions.
+
+### `@Positive`/`@Negative`: the constraint where floating point is actually fine
+
+M1's `@Min`/`@Max` explicitly reject `Float`/`Double` — a threshold comparison against a
+float is lossy, so the spec excludes them. A *sign* check has no such problem, so
+`@Positive`/`@Negative` support floating point just fine. The subtlety: comparing via
+`longValue()` (like `@Min`/`@Max` do) silently breaks here, because `0.5`'s `longValue()`
+truncates to `0` — which would wrongly read as "not positive." The fix is comparing the
+primitive `double` directly:
+
+```java
+static boolean isPositive(Number value) {
+    if (value instanceof BigDecimal bd) return bd.signum() > 0;
+    if (value instanceof BigInteger bi) return bi.signum() > 0;
+    if (value instanceof Float || value instanceof Double) return value.doubleValue() > 0;
+    return value.longValue() > 0;
+}
+```
+
+A nice side effect of using the plain `>`/`>=`/`<`/`<=` operators instead of building a
+signed `-1`/`0`/`1` result: `NaN > 0`, `NaN >= 0`, `NaN < 0`, and `NaN <= 0` are all `false`
+in Java, which happens to already match what the spec wants — `NaN` is neither positive nor
+negative. No special-casing needed, just not routing through a comparison abstraction that
+would have needed one.
+
+### `@Past`/`@Future`: borrowing "now" from `ClockProvider`
+
+This is where `ClockProvider` — one of the bootstrap components from M1 that had no real
+job yet — finally earns its keep. Each validator asks the `ConstraintValidatorContext` for
+a `Clock` and derives "now" from it, rather than calling `Instant.now()`/`LocalDate.now()`
+directly:
+
+```java
+public final class PastValidatorForInstant implements ConstraintValidator<Past, Instant> {
+    public boolean isValid(Instant value, ConstraintValidatorContext context) {
+        return value == null
+                || TemporalComparisons.isPast(value, Instant.now(context.getClockProvider().getClock()));
+    }
+}
+```
+
+That's what makes these testable without sleeping or mocking `System.currentTimeMillis()`:
+the test just hands the validator a `ConstraintValidatorContext` backed by a
+`Clock.fixed(...)`.
+
+```java
+Clock clock = Clock.fixed(NOW_INSTANT, ZoneOffset.UTC);
+ClockProvider clockProvider = () -> clock;
+ConstraintValidatorContext fixedNow = /* a small test double whose getClockProvider()
+                                          returns clockProvider, everything else unused */;
+
+assertTrue(new PastValidatorForInstant().isValid(NOW_INSTANT.minusSeconds(60), fixedNow));
+assertFalse(new PastValidatorForInstant().isValid(NOW_INSTANT.plusSeconds(60), fixedNow));
+```
+
+Deliberately scoped down, though: this covers `Instant`, `LocalDate`, and `java.util.Date`
+only. The spec's full temporal type list — `LocalDateTime`, `LocalTime`, `ZonedDateTime`,
+`OffsetDateTime`, `OffsetTime`, `Year`, `YearMonth`, `MonthDay`, `Calendar`, plus the
+non-ISO chronology dates (`HijrahDate`, `JapaneseDate`, `MinguoDate`, `ThaiBuddhistDate`) —
+is a documented gap, same "narrow it, write down what's missing" move as M1's
+`Object[]`-only array constraints. Each of those types needs its own validator class (no
+single generic "get me now" factory exists across all of them), so it's a lot of near-identical
+boilerplate for comparatively little marginal value right now.
+
+### Another naming-collision gotcha, this time in the tests
+
+Writing the `@AssertTrue`/`@AssertFalse` tests, the obvious method name was `assertTrue()`.
+That broke everything in the file — every call to the statically-imported
+`Assertions.assertTrue(...)` inside that test class started failing to compile, with the
+compiler insisting a zero-argument method wasn't "applicable" for a call passing two
+arguments. Turns out: the moment a class declares its *own* method with a given simple name,
+Java hides *every* statically-imported overload of that name for the rest of that class —
+regardless of how different the argument lists are. Renamed the test methods to
+`assertTrueConstraint()`/`assertFalseConstraint()` and the problem disappeared. Small, but
+the kind of thing that's genuinely confusing the first time the compiler error doesn't
+mention the real cause at all.
+
+### The rest of the manifest
+
+- `NumberSignSupport` — the shared sign-comparison helper above, used by all four
+  `@Positive`/`@Negative`-family validators.
+- `DecimalBoundSupport` + `DecimalMinValidatorFor{Number,CharSequence}` /
+  `DecimalMaxValidatorFor{Number,CharSequence}` — `@DecimalMin`/`@DecimalMax` target
+  `CharSequence` too (parsing the string as a `BigDecimal`), which plain `@Min`/`@Max`
+  don't — a real difference between the two, not an oversight.
+- `DigitsSupport` + `DigitsValidatorFor{Number,CharSequence}` — checks integer/fraction
+  digit counts via `BigDecimal.stripTrailingZeros()`.
+- `PatternValidator` — whole-string match (`Matcher.matches()`, not `.find()`), with
+  `Pattern.Flag[]` OR'd into the compiled `java.util.regex.Pattern`'s flags.
+- `EmailValidator` — a pragmatic, deliberately-not-RFC-5322 shape check. Full RFC 5322
+  (quoted local parts, comments, the works) is famously impractical to validate with a
+  regex and rarely what anyone actually wants enforced; documented as a known limitation
+  rather than pretended away.
+- `TemporalComparisons` + 12 `{Past,PastOrPresent,Future,FutureOrPresent}ValidatorFor{Instant,LocalDate,Date}`
+  classes.
+- A real bug fix: `ConstraintDescriptorImpl.getPayload()` was hardcoded to return an empty
+  set from M1 onward — nobody had populated `@interface`s with a non-default `payload()`
+  yet to notice. Now reads the annotation's actual `payload()` attribute.
+
+26 new validator classes, 58 tests total (up from 35), all green. `ROADMAP.md` has the full
+per-task status. Still open within M2: locale variants of the message bundle, the homegrown
+EL-subset grammar for message interpolation (not yet needed — every constraint added so far
+is covered by the plain `{attribute}` substitution from M1), and custom constraint
+authoring end-to-end.
+
 ## Where it stands now
 
-- A real, working `Validator.validate(bean)` for 6 built-in constraints (12 validator
-  classes total, since `@Size`/`@NotEmpty` each need one implementation per target type:
-  `CharSequence`, `Collection`, `Map`, array).
-- 35 tests, all green, including the three gotchas above locked in as regression tests.
+- A real, working `Validator.validate(bean)` for **all 21 built-in constraints** (M1's 6
+  plus M2's remaining 15), spanning 38 validator classes across their various target types
+  — though the `@Past`/`@Future` family is still narrowed to 3 temporal types, see below.
+- 58 tests, all green, including every gotcha above locked in as a regression test.
 - A clean, reproducible build: `./mvnw install` and `./mvnw -Ptck install` both succeed.
+- Two PRs merged so far ([#1](https://codeberg.org/Vidocq/erasmus/pulls/1) for M0+M1) and
+  open ([#2](https://codeberg.org/Vidocq/erasmus/pulls/2) for M2's built-in constraints).
 - No cascading (`@Valid`), no groups, no container-element constraints
   (`List<@NotBlank String>`), no method/constructor validation, and — the big one — no TCK
   integration yet. All scoped as later milestones in `ROADMAP.md`.
 
 ## What's next
 
-The roadmap has about ten more milestones, roughly in this order: the rest of the built-in
-constraints + a homegrown minimal EL-subset for message templates, object-graph cascading,
-groups, container-element constraints, method/constructor validation (paired with a
-compile-time code generator so the reflection above becomes optional for annotated beans),
-the constraint-metadata introspection API, CDI integration, and — treated as its own
-first-class track rather than an afterthought — getting the official TCK green.
+Finishing M2 first: locale variants for the message bundle, the EL-subset grammar, and a
+worked custom-constraint-authoring example. Then the rest of the roadmap, roughly in order:
+object-graph cascading, groups, container-element constraints, method/constructor
+validation (paired with a compile-time code generator so the reflection in `erasmus-core`
+becomes optional for annotated beans), the constraint-metadata introspection API, CDI
+integration, and — treated as its own first-class track rather than an afterthought —
+getting the official TCK green.
 
 Plus one loose end from the tooling detour at the very start: actually writing up the
 "optional per-contributor tooling" section that whole `context-mode`/`rtk` saga was
