@@ -699,28 +699,150 @@ EL-subset grammar for message interpolation (not yet needed — every constraint
 is covered by the plain `{attribute}` substitution from M1), and custom constraint
 authoring end-to-end.
 
+## M3: cascading, groups, and group sequences
+
+From `ROADMAP.md`:
+
+> **Scope spec:** cascaded validation, groups, group sequences.
+>
+> **Deliverable:** cascaded validation across arbitrary (including circular) object graphs
+> for single bean references, correct group-sequence short-circuiting for the
+> single-sequence-group case. 68 tests total (up from 58), all green.
+
+M2 was about *breadth* — more constraints, same shape as M1. M3 is the first milestone that
+actually changes the engine's *shape*: until now, `validate(bean)` was one flat pass over a
+single object's own properties. M3 adds the two things real-world Bean Validation code
+leans on constantly — `@Valid` cascading into nested beans, and groups (including
+`@GroupSequence`, which needs the validator to be able to stop partway through).
+
+### Cascading: the `Path` grows one segment at a time
+
+Up through M2, a violation's property path was always exactly one segment — there was
+never anywhere else for it to point. Cascading changes that: a violation on a nested bean's
+`city` field, reached through the outer bean's `address` property, needs a path that reads
+`address.city`. `PathImpl` picked up an `.append(name)`:
+
+```java
+PathImpl propertyPath = pathPrefix == null
+        ? PathImpl.ofProperty(property.name())
+        : pathPrefix.append(property.name());
+```
+
+`pathPrefix` is `null` only for the root bean's own properties; every recursive descent into
+a cascaded property passes its own (already-extended) path down as the prefix for whatever
+it finds inside. `getRootBean()` and `getRootBeanClass()` on the resulting violation still
+point at the *original* top-level bean the whole way down, though — only `getLeafBean()`
+changes to the nested instance that actually failed. Both come from the same recursive call,
+just threaded through unchanged versus reassigned each level.
+
+Scoped down deliberately: this covers a single nested bean reference
+(`@Valid private Address address;`) only. Cascading into the elements of a `List`/`Set`/
+array/`Map` is left for M4 — that's precisely the container-traversal problem the
+`ValueExtractor` SPI milestone exists to solve properly, so solving a narrower version of it
+here first would just mean redoing the work.
+
+### Cycle detection: identity, not `equals()`, and scoped to *what's being checked*
+
+A circular object graph — `a.next = b; b.next = a;` — would recurse forever without a guard.
+The fix is an identity-based "visited" set:
+
+```java
+if (!visited.add(currentBean)) {
+    return;
+}
+```
+
+`visited` is `Collections.newSetFromMap(new IdentityHashMap<>())` — deliberately identity
+comparison (`==`), not a bean's own `equals()`/`hashCode()`, since two distinct instances
+that happen to compare equal are still two different objects that both genuinely need
+checking. The subtler point is *when* a fresh `visited` set gets created: not once per
+top-level `validate()` call, but once per **group sheet** (see below). Revisiting the same
+bean instance under a *different* set of groups than the one that already visited it isn't a
+cycle at all — it's a legitimately different check — and creating `visited` fresh inside the
+per-sheet loop gets that right for free, without needing a composite `(bean, group)` key.
+
+### Groups: "sheets" instead of one pass
+
+The interesting design problem here: plain groups need no ordering at all (checking against
+two independent groups can happen in any order, or all at once), but a `@GroupSequence`
+*must* stop at the first group in the sequence that fails — evaluating the next group after
+a failure is explicitly wrong. One evaluation loop needs to serve both. The answer:
+`GroupsSupport.resolveSheets(...)` turns whatever was requested into an ordered list of
+"sheets" — each sheet a flat, unordered set of groups to check together — and `validate()`
+just stops at the first sheet with any violation:
+
+```java
+for (List<Class<?>> sheet : GroupsSupport.resolveSheets(groups)) {
+    Set<ConstraintViolation<T>> sheetViolations = new LinkedHashSet<>();
+    Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+    validateGraph(object, beanClass, object, sheet, null, visited, sheetViolations);
+    if (!sheetViolations.isEmpty()) {
+        return sheetViolations;
+    }
+}
+return Set.of();
+```
+
+For the plain case (no `@GroupSequence` involved — including the everyday "just validate
+against `Default`"), `resolveSheets` returns exactly *one* sheet containing every requested
+group (plus their inherited super-interfaces), so the loop runs once — same observable
+behavior as M1/M2 had all along. A `@GroupSequence` turns into *multiple* sheets, one per
+sub-group, in order.
+
+Scoped down deliberately, again: this gets the short-circuiting exactly right when the
+*whole* call targets a single group that's itself a sequence — the common shape in real
+code. Mixing a sequence group with other, unrelated groups in the same `validate(bean,
+SequenceGroup.class, OtherGroup.class)` call collapses everything into one unordered sheet
+instead of properly interleaving the sequence's short-circuit with the unrelated group.
+Rare in practice; written down in `ROADMAP.md` rather than silently getting it wrong.
+
+### The manifest
+
+- `PathImpl.append(String)` — multi-segment paths.
+- `GroupsSupport` — group inheritance (`Class.getInterfaces()`, walked recursively) and
+  `@GroupSequence` → ordered sheets.
+- `ConstraintDescriptorImpl.getGroups()` — finally reads the constraint's own `groups()`
+  attribute instead of being hardcoded to `Set.of(Default.class)` since M1; empty array
+  still correctly means "just `Default`," per spec.
+- `ConstraintMetadataBuilder` — now also detects bare `@Valid` (a property can be
+  constrained, cascaded, or both at once).
+- `ErasmusValidator` — rewritten around a recursive `validateGraph(...)` (cascading +
+  cycle detection) instead of the flat per-property loop from M1/M2.
+- `CascadingAndGroupsTest` — 10 tests: nested cascading with a dotted path, a `@Valid`-less
+  nested bean correctly *not* cascaded into, a two-node cycle, a node that cascades into
+  itself, `Default` vs. an explicit group, group inheritance, and both directions of
+  `@GroupSequence` short-circuiting (fails at the first group / passes through to the
+  second).
+
+68 tests total (up from 58), all green.
+
 ## Where it stands now
 
-- A real, working `Validator.validate(bean)` for **all 21 built-in constraints** (M1's 6
-  plus M2's remaining 15), spanning 38 validator classes across their various target types
-  — though the `@Past`/`@Future` family is still narrowed to 3 temporal types, see below.
-- 58 tests, all green, including every gotcha above locked in as a regression test.
+- A real, working `Validator.validate(bean)` for **all 21 built-in constraints**, now with
+  `@Valid` cascading into single nested beans (with cycle detection), `Default`/explicit/
+  inherited groups, and `@GroupSequence` short-circuiting for the common case.
+- 68 tests, all green, including every gotcha and scope decision above locked in as a test.
 - A clean, reproducible build: `./mvnw install` and `./mvnw -Ptck install` both succeed.
-- Two PRs merged so far ([#1](https://codeberg.org/Vidocq/erasmus/pulls/1) for M0+M1) and
-  open ([#2](https://codeberg.org/Vidocq/erasmus/pulls/2) for M2's built-in constraints).
-- No cascading (`@Valid`), no groups, no container-element constraints
-  (`List<@NotBlank String>`), no method/constructor validation, and — the big one — no TCK
-  integration yet. All scoped as later milestones in `ROADMAP.md`.
+- Three PRs merged ([#1](https://codeberg.org/Vidocq/erasmus/pulls/1) M0+M1,
+  [#2](https://codeberg.org/Vidocq/erasmus/pulls/2) M2's built-in constraints,
+  [#3](https://codeberg.org/Vidocq/erasmus/pulls/3) `MAKING-OF.md` polish) and one open
+  ([#4](https://codeberg.org/Vidocq/erasmus/pulls/4), draft, for M3).
+- Still open: cascading into container elements (M4), method/constructor validation (M5),
+  the constraint-metadata introspection API (M6), CDI integration (M7), and — the big one —
+  no TCK integration yet.
 
 ## What's next
 
-Finishing M2 first: locale variants for the message bundle, the EL-subset grammar, and a
-worked custom-constraint-authoring example. Then the rest of the roadmap, roughly in order:
-object-graph cascading, groups, container-element constraints, method/constructor
-validation (paired with a compile-time code generator so the reflection in `erasmus-core`
-becomes optional for annotated beans), the constraint-metadata introspection API, CDI
-integration, and — treated as its own first-class track rather than an afterthought —
-getting the official TCK green.
+Container-element constraints next (M4): the `ValueExtractor` SPI, built-in extractors for
+`Collection`/`Map`/`Optional`/arrays, and — this is also where the container-cascading gap
+left open by M3 gets closed — `List<@Valid Address>`-style cascading into collection
+elements. Then method/constructor validation paired with a compile-time code generator
+(M5), the constraint-metadata introspection API (M6), CDI integration (M7), and — treated as
+its own first-class track rather than an afterthought — getting the official TCK green (M8).
+
+Still owed from M2: locale variants for the message bundle, the EL-subset grammar, and a
+worked custom-constraint-authoring example — none of them blocking anything built so far,
+so they keep getting pushed down the list in favor of the milestones that unblock more work.
 
 Plus one loose end from the tooling detour at the very start: actually writing up the
 "optional per-contributor tooling" section that whole `context-mode`/`rtk` saga was
