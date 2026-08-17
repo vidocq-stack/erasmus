@@ -24,6 +24,7 @@ import jakarta.validation.Constraint;
 import jakarta.validation.ConstraintTarget;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.Payload;
+import jakarta.validation.ReportAsSingleViolation;
 import jakarta.validation.ValidationException;
 import jakarta.validation.groups.Default;
 import jakarta.validation.metadata.ConstraintDescriptor;
@@ -32,6 +33,7 @@ import jakarta.validation.metadata.ValidateUnwrappedValue;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,10 +42,9 @@ import java.util.Set;
  * Reflective {@link ConstraintDescriptor}: built once per (property, annotation)
  * pair by {@link ConstraintMetadataBuilder} and cached in {@code BeanMetadata}.
  *
- * <p>Composed constraints ({@code getComposingConstraints()}) and explicit
- * {@code groups} are out of scope until ROADMAP M3 — every constraint is currently
- * reported under the {@link Default} group only. {@code payload} is read through
- * (ROADMAP M2).
+ * <p>Explicit {@code groups} are out of scope until ROADMAP M3 — every constraint is
+ * currently reported under the {@link Default} group only. {@code payload} (M2) and
+ * composed constraints / {@code @ReportAsSingleViolation} (M2) are read through.
  */
 public final class ConstraintDescriptorImpl<A extends Annotation> implements ConstraintDescriptor<A> {
 
@@ -51,6 +52,8 @@ public final class ConstraintDescriptorImpl<A extends Annotation> implements Con
     private final String messageTemplate;
     private final Map<String, Object> attributes;
     private final List<Class<? extends ConstraintValidator<A, ?>>> validatorClasses;
+    private final Set<ConstraintDescriptor<?>> composingConstraints;
+    private final boolean reportAsSingleViolation;
 
     @SuppressWarnings("unchecked")
     public ConstraintDescriptorImpl(A annotation) {
@@ -63,6 +66,9 @@ public final class ConstraintDescriptorImpl<A extends Annotation> implements Con
         if (meta == null) {
             throw new ValidationException(constraintType.getName() + " is not a @Constraint annotation");
         }
+        this.composingConstraints = composingConstraintsOf(constraintType);
+        this.reportAsSingleViolation = constraintType.isAnnotationPresent(ReportAsSingleViolation.class);
+
         // The spec's own built-in constraints (@NotNull, @Size, ...) declare
         // @Constraint(validatedBy = {}) — an empty array. Only user-defined custom
         // constraints populate it directly; built-ins are resolved via the
@@ -71,9 +77,30 @@ public final class ConstraintDescriptorImpl<A extends Annotation> implements Con
         List<Class<? extends ConstraintValidator<?, ?>>> resolved =
                 declared.isEmpty() ? BuiltinConstraints.validatorsFor(constraintType) : declared;
         if (resolved == null) {
-            throw new ValidationException("No ConstraintValidator registered for " + constraintType.getName());
+            if (composingConstraints.isEmpty()) {
+                throw new ValidationException("No ConstraintValidator registered for " + constraintType.getName());
+            }
+            // A "pure composition" constraint: no validator of its own, entirely delegated
+            // to its composing constraints (e.g. @StrongPassword composed of @NotNull @Size).
+            resolved = List.of();
         }
         this.validatorClasses = (List<Class<? extends ConstraintValidator<A, ?>>>) (List<?>) resolved;
+    }
+
+    /**
+     * A constraint annotation type can itself be meta-annotated with other constraint
+     * annotations — each becomes a composing constraint, evaluated alongside this
+     * descriptor's own validator(s), if any. Built through the same constructor recursively,
+     * so a composing constraint that is itself composed works with no extra code.
+     */
+    private static Set<ConstraintDescriptor<?>> composingConstraintsOf(Class<? extends Annotation> constraintType) {
+        Set<ConstraintDescriptor<?>> composing = new LinkedHashSet<>();
+        for (Annotation meta : constraintType.getAnnotations()) {
+            if (meta.annotationType().isAnnotationPresent(Constraint.class)) {
+                composing.add(new ConstraintDescriptorImpl<>(meta));
+            }
+        }
+        return Set.copyOf(composing);
     }
 
     private static Map<String, Object> readAttributes(Annotation annotation) {
@@ -128,12 +155,12 @@ public final class ConstraintDescriptorImpl<A extends Annotation> implements Con
 
     @Override
     public Set<ConstraintDescriptor<?>> getComposingConstraints() {
-        return Set.of();
+        return composingConstraints;
     }
 
     @Override
     public boolean isReportAsSingleViolation() {
-        return false;
+        return reportAsSingleViolation;
     }
 
     @Override

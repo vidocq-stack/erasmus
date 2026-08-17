@@ -34,6 +34,7 @@ import jakarta.validation.ValidationException;
 import jakarta.validation.Validator;
 import jakarta.validation.executable.ExecutableValidator;
 import jakarta.validation.metadata.BeanDescriptor;
+import jakarta.validation.metadata.ConstraintDescriptor;
 
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
@@ -43,11 +44,13 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Property-level Bean Validation engine (ROADMAP M1). No groups (every constraint
+ * Property-level Bean Validation engine (ROADMAP M1/M2). No groups (every constraint
  * is evaluated regardless of the {@code groups} vararg — see ROADMAP M3), no
  * cascading (see M3), no container-element unwrapping (see M4), no executable
  * validation (see M5): a flat {@code validate(bean)} over directly annotated
- * fields/getters, built-in constraints only.
+ * fields/getters. Built-in constraints, plus custom constraint authoring: composed
+ * constraints (a constraint annotation meta-annotated with other constraints) and
+ * {@code @ReportAsSingleViolation} (ROADMAP M2).
  */
 final class ErasmusValidator implements Validator {
 
@@ -120,15 +123,50 @@ final class ErasmusValidator implements Validator {
 
     private <T> void validateProperty(T rootBean, Class<T> rootBeanClass, PropertyMetadata property,
                                        Object value, Set<ConstraintViolation<T>> violations) {
+        PathImpl propertyPath = PathImpl.ofProperty(property.name());
         for (ConstraintDescriptorImpl<?> descriptor : property.constraints()) {
-            validateConstraint(rootBean, rootBeanClass, property.name(), property.accessor().getType(),
-                    value, descriptor, violations);
+            violations.addAll(evaluateConstraint(rootBean, rootBeanClass, propertyPath,
+                    property.accessor().getType(), value, descriptor));
         }
     }
 
-    private <T, A extends Annotation> void validateConstraint(
-            T rootBean, Class<T> rootBeanClass, String propertyName, Class<?> declaredType, Object value,
-            ConstraintDescriptorImpl<A> descriptor, Set<ConstraintViolation<T>> violations) {
+    /**
+     * Evaluates one constraint descriptor — its own validator (if it has one) plus every
+     * composing constraint (recursively, so a composing constraint that is itself composed
+     * works with no extra code) — and returns the resulting violations. With
+     * {@code @ReportAsSingleViolation}, any failure anywhere in that tree collapses into a
+     * single violation carrying this descriptor's own message, instead of one violation per
+     * failing part.
+     */
+    private <T, A extends Annotation> List<ConstraintViolationImpl<T>> evaluateConstraint(
+            T rootBean, Class<T> rootBeanClass, PathImpl propertyPath, Class<?> declaredType, Object value,
+            ConstraintDescriptorImpl<A> descriptor) {
+
+        List<ConstraintViolationImpl<T>> collected = new ArrayList<>();
+        if (!descriptor.getConstraintValidatorClasses().isEmpty()) {
+            collected.addAll(evaluateOwnValidator(rootBean, rootBeanClass, propertyPath, declaredType, value, descriptor));
+        }
+        for (ConstraintDescriptor<?> composing : descriptor.getComposingConstraints()) {
+            @SuppressWarnings("unchecked")
+            ConstraintDescriptorImpl<Annotation> composingImpl = (ConstraintDescriptorImpl<Annotation>) composing;
+            collected.addAll(evaluateConstraint(rootBean, rootBeanClass, propertyPath, declaredType, value, composingImpl));
+        }
+
+        if (collected.isEmpty()) {
+            return List.of();
+        }
+        if (descriptor.isReportAsSingleViolation()) {
+            String template = descriptor.getMessageTemplate();
+            String message = messageInterpolator.interpolate(template, new MessageInterpolatorContextImpl(descriptor, value));
+            return List.of(new ConstraintViolationImpl<>(message, template, rootBean, rootBeanClass, rootBean, value,
+                    propertyPath, descriptor));
+        }
+        return collected;
+    }
+
+    private <T, A extends Annotation> List<ConstraintViolationImpl<T>> evaluateOwnValidator(
+            T rootBean, Class<T> rootBeanClass, PathImpl propertyPath, Class<?> declaredType, Object value,
+            ConstraintDescriptorImpl<A> descriptor) {
 
         // Resolution uses the declared (static) type when the value is null — the runtime
         // class of `null` does not exist, and every built-in validator besides @NotNull
@@ -150,7 +188,7 @@ final class ErasmusValidator implements Validator {
             constraintValidatorFactory.releaseInstance(validator);
         }
         if (valid) {
-            return;
+            return List.of();
         }
 
         List<String> templates = new ArrayList<>();
@@ -159,11 +197,13 @@ final class ErasmusValidator implements Validator {
         }
         templates.addAll(context.getCustomMessageTemplates());
 
+        List<ConstraintViolationImpl<T>> result = new ArrayList<>();
         for (String template : templates) {
             String message = messageInterpolator.interpolate(template, new MessageInterpolatorContextImpl(descriptor, value));
-            violations.add(new ConstraintViolationImpl<>(message, template, rootBean, rootBeanClass, rootBean, value,
-                    PathImpl.ofProperty(propertyName), descriptor));
+            result.add(new ConstraintViolationImpl<>(message, template, rootBean, rootBeanClass, rootBean, value,
+                    propertyPath, descriptor));
         }
+        return result;
     }
 
     @Override

@@ -21,6 +21,7 @@ package io.vidocq.erasmus.core.internal;
 
 import jakarta.validation.MessageInterpolator;
 
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.MissingResourceException;
@@ -31,13 +32,13 @@ import java.util.regex.Pattern;
 /**
  * Default {@link MessageInterpolator}.
  *
- * <p>Handles the two substitution steps the built-in constraints (ROADMAP M1/M2)
- * actually need: resolving a whole-template resource bundle reference such as
- * {@code {jakarta.validation.constraints.NotNull.message}} against a resource
- * bundle, then substituting {@code {attributeName}} tokens with the constraint's
- * own attribute values (e.g. {@code {min}}/{@code {max}} for {@code @Size}). This
- * intentionally does NOT evaluate the spec's predefined EL subset ({@code ${...}}
- * expressions) — that homegrown EL-subset grammar is scoped to ROADMAP M2.
+ * <p>Three steps, in order: resolve a whole-template resource bundle reference such as
+ * {@code {jakarta.validation.constraints.NotNull.message}} against a resource bundle;
+ * substitute {@code {attributeName}} tokens with the constraint's own attribute values
+ * (e.g. {@code {min}}/{@code {max}} for {@code @Size}); then evaluate any {@code ${...}}
+ * expressions against {@link MinimalElExpression} — the spec's predefined-EL subset,
+ * scoped deliberately narrow (see that class's javadoc) rather than a full unified-EL
+ * implementation.
  *
  * <p><b>Bundle lookup order</b> — the spec names {@code jakarta.validation.ValidationMessages}
  * as the bundle a caller may supply to override default messages. Erasmus's own
@@ -47,7 +48,8 @@ import java.util.regex.Pattern;
  * split-package — two modules both "containing" {@code jakarta.validation} — which the
  * module system rejects at resolution time. Erasmus's defaults therefore live under its
  * own package instead, and are consulted only once the (likely absent) user override
- * bundle at the spec's own path comes up empty.
+ * bundle at the spec's own path comes up empty. Locale-specific variants (currently just
+ * {@code _fr}) follow standard {@code ResourceBundle} fallback rules.
  */
 public final class ErasmusMessageInterpolator implements MessageInterpolator {
 
@@ -55,6 +57,7 @@ public final class ErasmusMessageInterpolator implements MessageInterpolator {
     private static final String DEFAULT_BUNDLE = "io.vidocq.erasmus.core.internal.ValidationMessages";
     private static final Pattern BUNDLE_KEY = Pattern.compile("^\\{([^{}]+)}$");
     private static final Pattern ATTRIBUTE_PLACEHOLDER = Pattern.compile("\\{([A-Za-z0-9_.]+)}");
+    private static final Pattern EL_EXPRESSION = Pattern.compile("\\$\\{([^{}]*)}");
 
     @Override
     public String interpolate(String messageTemplate, Context context) {
@@ -64,7 +67,8 @@ public final class ErasmusMessageInterpolator implements MessageInterpolator {
     @Override
     public String interpolate(String messageTemplate, Context context, Locale locale) {
         String resolved = resolveBundleReference(messageTemplate, locale);
-        return substituteAttributes(resolved, context.getConstraintDescriptor().getAttributes());
+        String substituted = substituteAttributes(resolved, context.getConstraintDescriptor().getAttributes());
+        return evaluateElExpressions(substituted, context);
     }
 
     private static String resolveBundleReference(String template, Locale locale) {
@@ -100,6 +104,27 @@ public final class ErasmusMessageInterpolator implements MessageInterpolator {
             Object value = attributes.get(matcher.group(1));
             String replacement = value != null ? String.valueOf(value) : matcher.group();
             matcher.appendReplacement(result, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(result);
+        return result.toString();
+    }
+
+    private static String evaluateElExpressions(String template, Context context) {
+        Matcher matcher = EL_EXPRESSION.matcher(template);
+        if (!matcher.find()) {
+            return template;
+        }
+        // Constraint attributes double as EL variables (e.g. {min}/{max} substitution above
+        // and ${min}/${max} inside an expression both read the same values), plus the one
+        // implicit variable the spec calls out by name: the value under validation.
+        Map<String, Object> variables = new HashMap<>(context.getConstraintDescriptor().getAttributes());
+        variables.put("validatedValue", context.getValidatedValue());
+
+        StringBuilder result = new StringBuilder();
+        matcher.reset();
+        while (matcher.find()) {
+            Object value = MinimalElExpression.evaluate(matcher.group(1), variables);
+            matcher.appendReplacement(result, Matcher.quoteReplacement(value == null ? "null" : String.valueOf(value)));
         }
         matcher.appendTail(result);
         return result.toString();

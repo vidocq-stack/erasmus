@@ -130,7 +130,7 @@ its keep on a reflection-heavy engine like this one):**
 
 ---
 
-### M2 — Full built-in constraint set + message interpolation 🚧 (partial)
+### M2 — Full built-in constraint set + message interpolation ✅
 
 **Scope spec:** remaining built-in constraints, message interpolation with EL-subset support.
 
@@ -138,13 +138,14 @@ its keep on a reflection-heavy engine like this one):**
 |---|---|---|
 | Remaining built-in constraints | `@AssertTrue`/`@AssertFalse`; `@Positive`/`@PositiveOrZero`/`@Negative`/`@NegativeOrZero` (Number, floating-point supported — unlike Min/Max, a sign check has no precision problem); `@DecimalMin`/`@DecimalMax` (Number + CharSequence, floating-point excluded, `inclusive` attribute); `@Digits` (Number + CharSequence, floating-point excluded); `@Pattern` (CharSequence, whole-string match, `Flag[]`); `@Email` (CharSequence, pragmatic non-RFC-5322 shape check + optional additional `regexp`); `@Past`/`@PastOrPresent`/`@Future`/`@FutureOrPresent` for `Instant`/`LocalDate`/`java.util.Date` only — **`LocalDateTime`, `LocalTime`, `ZonedDateTime`, `OffsetDateTime`, `OffsetTime`, `Year`, `YearMonth`, `MonthDay`, `Calendar`, and the non-ISO chronology date types (`HijrahDate`, `JapaneseDate`, `MinguoDate`, `ThaiBuddhistDate`) are a deliberate, documented gap** — same "narrow the target-type set, document the rest" pattern as M1's `Object[]`-only array constraints. 26 new validator classes, 58 tests total (up from 35). | ✅ (narrowed scope) |
 | `Payload` support | `ConstraintDescriptorImpl.getPayload()` now reads the annotation's `payload()` attribute instead of returning an empty set unconditionally. | ✅ |
-| Default resource bundles + locale variants | Only the default (no-locale) bundle exists; no `ValidationMessages_fr.properties` or similar yet. | ❌ not started |
-| Homegrown minimal EL-subset interpolator | `{attribute}` substitution and bundle-key resolution (from M1) still cover every built-in constraint added here — none of their default messages need real EL. The `${...}` grammar itself remains unimplemented. | ❌ not started |
-| Custom constraint authoring | `@ReportAsSingleViolation`, composed constraints, a worked example — not started. | ❌ not started |
+| Default resource bundles + locale variants | `ValidationMessages_fr.properties` added alongside the default bundle — French translations for all 21 built-in constraint default messages. Locale resolution rides on the JDK's standard `ResourceBundle` fallback (no bespoke lookup logic): an unsupported locale (tested with Japanese) falls back to the default bundle. | ✅ |
+| Homegrown minimal EL-subset interpolator | `MinimalElExpression` — a small recursive-descent parser/evaluator for the `${...}` grammar actually used by real-world constraint messages: ternary, `\|\|`/`&&`, equality/relational, `+ - * /` `%`, unary `!`/`-`, string/number/boolean/null literals, and variable lookup against the constraint's attributes plus `validatedValue`. Deliberately **not** a general-purpose EL engine — no method calls, no bracket/dot navigation, no user-defined functions. Wired into `ErasmusMessageInterpolator` as a third pipeline step after bundle-key resolution and `{attribute}` substitution. | ✅ |
+| Custom constraint authoring | `ConstraintDescriptorImpl` now resolves a "pure composition" constraint (empty `validatedBy()`, no `BuiltinConstraints` match) by delegating entirely to its composing constraints instead of throwing; `getComposingConstraints()`/`isReportAsSingleViolation()` are read through instead of hardcoded. `ErasmusValidator.evaluateConstraint()` recursively evaluates a descriptor's own validator (if any) plus every composing constraint, and collapses the result to one violation carrying the composed constraint's own message when `@ReportAsSingleViolation` is present. Covered end-to-end by `CustomConstraintAuthoringTest`: a simple custom constraint with its own `validatedBy()` validator (including EL in its message template), a composed constraint reporting one violation per failing part, the same composed constraint with `@ReportAsSingleViolation` collapsing to one, and a custom constraint declaring multiple `ConstraintValidator`s for different target types resolved through the same `ConstraintValidatorResolver` used for built-ins. | ✅ |
 
-**Deliverable (partial):** all built-in constraints implemented and unit-tested for the
-narrowed target-type set above. Message interpolation, `Payload`, and custom constraint
-authoring remain for a follow-up pass within M2.
+**Deliverable:** all built-in constraints implemented and unit-tested for the narrowed
+target-type set above, locale-aware message interpolation (default + French bundles, EL-subset
+`${...}` expressions), and custom constraint authoring (composed constraints,
+`@ReportAsSingleViolation`, multi-target-type `validatedBy()`).
 
 **A naming-collision gotcha worth remembering:** a JUnit test method named `assertTrue()` in
 the same class as a `static import Assertions.assertTrue` silently breaks — Java hides
