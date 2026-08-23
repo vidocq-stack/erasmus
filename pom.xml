@@ -19,7 +19,7 @@
 
     <name>Erasmus</name>
     <description>Jakarta Bean Validation 3.1 implementation — zero third-party dependency, virtual threads, strict Java Modules, static constraint-dispatch codegen via APT</description>
-    <url>https://codeberg.org/Vidocq/erasmus</url>
+    <url>https://codefloe.com/Vidocq/erasmus</url>
 
     <developers>
         <developer>
@@ -54,9 +54,9 @@
     </licenses>
 
     <scm>
-        <url>https://codeberg.org/Vidocq/erasmus</url>
-        <connection>scm:git:https://codeberg.org/Vidocq/erasmus.git</connection>
-        <developerConnection>scm:git:git@codeberg.org:Vidocq/erasmus.git</developerConnection>
+        <url>https://codefloe.com/Vidocq/erasmus</url>
+        <connection>scm:git:https://codefloe.com/Vidocq/erasmus.git</connection>
+        <developerConnection>scm:git:git@codefloe.com:Vidocq/erasmus.git</developerConnection>
     </scm>
 
     <properties>
