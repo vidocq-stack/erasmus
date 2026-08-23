@@ -189,7 +189,7 @@ citation, test hash, and reactivation plan — created only if one is actually f
 
 ## Documentation (Antora) conventions
 
-The project documentation lives in `docs/en` and `docs/fr` as Antora modules and is
+The project documentation lives in `docs/en` as an Antora component and is
 aggregated by the **vidocq-docs** site, which provides a **shared UI bundle** (banner,
 logo, fonts, colours, footer). **Never customise the documentation UI per project** —
 all visual harmonisation is centralised in `vidocq-docs/ui-bundle`. (Not yet created for
@@ -197,7 +197,7 @@ Erasmus — see `AGENTS.md` for the layout to follow once it is.)
 
 ### Gold reference
 **Vauban** is the reference implementation for documentation structure. Mirror its
-`docs/en` + `docs/fr` layout when creating docs for this project.
+`docs/en` layout when creating docs for this project.
 
 ### TCK / Performance rule
 Erasmus is a spec implementation (not Chappe/Vidocq's special case), so its docs will need
