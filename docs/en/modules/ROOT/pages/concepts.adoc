@@ -28,7 +28,7 @@ A constraint may declare several `ConstraintValidator` implementations. For each
 
 == Interpolation without EL
 
-The spec's message syntax allows Expression Language. Shipping a full EL implementation would contradict the zero-dependency rule, so Erasmus embeds a **minimal expression evaluator** covering the operators real-world messages use (ternary, boolean, equality, relational, arithmetic, unary). Constraint attributes (`{min}`, `{max}`, `{value}`…) and localized bundle keys interpolate first; the expression pass runs on what remains.
+The spec's message syntax allows Expression Language. Shipping a full EL implementation would contradict the zero-dependency rule, so Erasmus embeds a **minimal expression evaluator** covering the operators real-world messages use (ternary, boolean, equality, relational, arithmetic, unary). Constraint attributes (`\{min}`, `\{max}`, `\{value}`…) and localized bundle keys interpolate first; the expression pass runs on what remains.
 
 == What the milestones add
 
