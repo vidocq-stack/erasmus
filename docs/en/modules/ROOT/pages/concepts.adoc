@@ -1,0 +1,46 @@
+= Concepts
+:description: How Erasmus models constraints — provider discovery, metadata, validator resolution, interpolation.
+
+[.lead]
+Four ideas explain the whole engine: standard provider discovery, a per-bean metadata model, most-specific validator resolution, and a dependency-free interpolator.
+
+== Provider discovery
+
+Erasmus never asks you to reference it. The spec's `Validation.buildDefaultValidatorFactory()` walks the `jakarta.validation.spi.ValidationProvider` service; `erasmus-core` declares
+
+[source,java]
+----
+provides jakarta.validation.spi.ValidationProvider
+    with io.vidocq.erasmus.core.internal.ErasmusValidationProvider;
+----
+
+in its `module-info.java`. Put `erasmus-core` on the module path and the standard bootstrap finds it — remove it and the same application runs on any other compliant provider.
+
+== Constraint metadata
+
+When a type is first validated, Erasmus builds its `BeanMetadata`: every field, getter and class-level constraint, resolved once and cached. Accessors are modelled explicitly (field access vs property access), so `validateProperty` and `getConstraintsForClass` answer from the same model the validator uses.
+
+This is currently a *reflective* build — the one place where Erasmus still reflects. It is deliberately isolated behind the metadata API so that milestone M5 can swap in APT-generated per-bean dispatchers without touching the engine, and run both paths differentially in the test suite.
+
+== Validator resolution
+
+A constraint may declare several `ConstraintValidator` implementations. For each constrained location Erasmus inspects the validators' generic interfaces, boxes primitives, and selects the **most specific** validator for the declared type of the target — failing with the spec-mandated `UnexpectedTypeException` when none applies, rather than guessing at runtime.
+
+== Interpolation without EL
+
+The spec's message syntax allows Expression Language. Shipping a full EL implementation would contradict the zero-dependency rule, so Erasmus embeds a **minimal expression evaluator** covering the operators real-world messages use (ternary, boolean, equality, relational, arithmetic, unary). Constraint attributes (`{min}`, `{max}`, `{value}`…) and localized bundle keys interpolate first; the expression pass runs on what remains.
+
+== What the milestones add
+
+[cols="1,4",options="header"]
+|===
+| Milestone | Concept it introduces
+
+| M3 | Cascaded validation graph (`@Valid`) and group sequences.
+| M4 | `ValueExtractor` SPI — container element constraints (`List<@Email String>`).
+| M5 | Executable validation and the APT dispatcher generator (codegen replaces the reflective metadata build).
+| M6 | Full constraint-descriptor metadata API.
+| M7–M11 | CDI (Vauban) integration, official TCK, Cassini (REST) mapping, Vidocq Runtime extension.
+|===
+
+Details and status: `ROADMAP.md` in {repo-erasmus}[the repo].

@@ -1,0 +1,64 @@
+= Reference
+:description: Maven coordinates, Java modules, supported API surface.
+
+== Maven coordinates
+
+Not on Maven Central yet — build from source (see xref:getting-started.adoc[Getting started]). All artefacts share the version `{project-version}` under the `io.vidocq.erasmus` group:
+
+[cols="2,3",options="header"]
+|===
+| Artefact | Role
+
+| `io.vidocq.erasmus:erasmus-api:{project-version}`
+| Spec aggregator (`requires transitive jakarta.validation`)
+
+| `io.vidocq.erasmus:erasmus-core:{project-version}`
+| The validation engine (runtime scope)
+
+| `io.vidocq.erasmus:erasmus-codegen-apt:{project-version}`
+| APT dispatcher generator *(M5 placeholder)*
+
+| `io.vidocq.erasmus:erasmus-codegen-maven-plugin:{project-version}`
+| Dispatcher generation for third-party jars *(M5 placeholder)*
+
+| `io.vidocq.erasmus:erasmus-cdi-vauban:{project-version}`
+| CDI integration via Vauban *(M7 placeholder)*
+
+| `io.vidocq.erasmus:erasmus-jaxrs:{project-version}`
+| Jakarta REST violation mapping *(M9 placeholder)*
+|===
+
+== Exported Java modules
+
+[cols="1,2",options="header"]
+|===
+| Module | Exports
+
+| `io.vidocq.erasmus.api` | Re-exports the `jakarta.validation` API (transitive requires); no own packages.
+| `io.vidocq.erasmus.core` | **Nothing** — engine internals are fully encapsulated; the module only `provides jakarta.validation.spi.ValidationProvider`.
+|===
+
+== Supported API surface (today)
+
+[cols="2,1",options="header"]
+|===
+| Spec API | Status
+
+| `Validation.buildDefaultValidatorFactory()` / `byDefaultProvider()` | ✔
+| `ValidatorFactory.getValidator()` / `usingContext()` / `close()` | ✔
+| `Validator.validate` / `validateProperty` / `validateValue` | ✔
+| `Validator.getConstraintsForClass` / `unwrap` | ✔
+| The 21 built-in constraints (45 validator target types) | ✔
+| Custom constraints, multi-validator constraints, composition, `@ReportAsSingleViolation` | ✔
+| Message interpolation (attribute + localized bundles + EL subset) | ✔
+| `@Valid` cascading, groups, group sequences | M3
+| `ValueExtractor` / container element constraints | M4
+| `forExecutables()` method/constructor validation | M5
+| Constraint descriptor metadata (full) | M6
+| XML mapping | under evaluation
+|===
+
+== Bugs and benchmarks
+
+* link:{repo-erasmus}/src/branch/main/BUG.md[BUG.md] — reproducible bugs.
+* link:{repo-erasmus}/src/branch/main/BENCH.md[BENCH.md] — JMH runs vs Hibernate Validator (empty until the bench harness records its first numbers).

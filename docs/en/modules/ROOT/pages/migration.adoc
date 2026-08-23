@@ -1,0 +1,35 @@
+= Migration
+:description: Coming to Erasmus from Hibernate Validator or Apache BVal — what maps, what is missing today.
+
+[.lead]
+Erasmus is at `{project-version}` and **not released**: migrating a production application is premature. This page documents the mapping ahead of time, so you know what to expect — and what to wait for.
+
+== The good news
+
+If your code sticks to the **standard API**, there is nothing to migrate:
+
+[cols="1,1",options="header"]
+|===
+| You use today | With Erasmus
+
+| `Validation.buildDefaultValidatorFactory()` | identical
+| The 21 `jakarta.validation.constraints.*` annotations | identical
+| Custom `ConstraintValidator` implementations | identical
+| Composed constraints / `@ReportAsSingleViolation` | identical
+| `ValidationMessages.properties` bundles | identical (EN + FR shipped for the built-ins)
+|===
+
+Swap the provider on the module path, and the standard bootstrap picks Erasmus up.
+
+== What to check before switching
+
+* **Cascading and groups** (`@Valid`, `groups`, `GroupSequence`) — not implemented yet (M3). If your model relies on them, wait.
+* **Container element constraints** (`List<@Email String>`) — M4.
+* **Method validation** (`@ValidateOnExecution`, CDI interceptor) — engine part is M5, CDI wiring M7.
+* **Full EL in messages** — Erasmus interpolates a deliberate EL *subset* (no method calls, no nested navigation). Messages using `${validatedValue.method()}`-style expressions render literally.
+* **Provider-specific APIs** — `HibernateValidatorConfiguration`, programmatic constraint mapping, and other vendor extensions have no Erasmus equivalent, by design.
+* **XML constraint mapping** (`validation.xml` constraint declarations) — under evaluation, demand-driven.
+
+== Philosophy difference
+
+Hibernate Validator is a mature, feature-complete implementation with its own dependency tree. Erasmus trades feature breadth today for the Vidocq guarantees: spec-only dependencies, full Java Modules encapsulation, and a compile-time metadata path (M5) aimed at AOT (GraalVM `native-image`, Project Leyden). Pick accordingly — and see xref:tck.adoc[TCK status] for where conformance stands.

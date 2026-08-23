@@ -1,0 +1,28 @@
+= TCK status
+:description: Jakarta Validation 3.1 TCK — not run yet; the harness is milestone M8.
+
+[.lead]
+Honest status: the official Jakarta Validation 3.1 TCK has **not been run** against Erasmus yet. The runner is milestone M8, after cascading (M3), value extraction (M4) and executable validation (M5) land — running it earlier would only measure known gaps.
+
+== Plan of record
+
+[cols="1,3",options="header"]
+|===
+| Item | Plan
+
+| Runner | `erasmus-tck` module, in the reactor only under the `-Ptck` Maven profile (same pattern as the other Vidocq bricks).
+| Script | `run-official-tck-bean-validation-3.1.sh` with `smoke` / `all` / `-Dtest=` modes, reporting to `target/tck-report.txt`.
+| First target | The signature test, then the full suite.
+| Merge gate | Once wired, 100 % PASS becomes a hard merge gate on `main`.
+|===
+
+== Interim coverage
+
+Until the official suite runs, correctness is carried by the in-repo test suite: per-constraint test classes for the 21 built-in constraints, bootstrap and factory lifecycle tests, custom/composed constraint authoring tests, locale interpolation and EL-subset tests — written test-first, per the workspace TDD rule.
+
+== Tracking
+
+* Reproducible issues: link:{repo-erasmus}/src/branch/main/BUG.md[BUG.md]
+* Milestones and open risks (TCK coordinates, Arquillian needs): `ROADMAP.md` in {repo-erasmus}[the repo]
+
+This page will carry the run date, suite version, exact command and pass counts as soon as the first official run happens — numbers never appear here without a corresponding record in the repo.

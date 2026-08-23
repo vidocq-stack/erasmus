@@ -1,0 +1,101 @@
+= Getting started
+:description: Build Erasmus from source, declare it in a Java Modules project, and run a first validation.
+
+[.lead]
+Erasmus is not on Maven Central yet, so getting started means building it from source once, then using it like any Jakarta Validation provider — the API is 100 % the standard one.
+
+== Prerequisites
+
+* **Java 25** (Temurin recommended)
+* **Maven 3.9.16** — pinned via `.sdkmanrc` in the repo (`sdk env`)
+
+== Step 1 — Build from source
+
+[source,bash]
+----
+git clone https://codefloe.com/Vidocq/erasmus.git
+cd erasmus
+./mvnw -ntp install -DskipTests
+----
+
+This installs the `{project-version}` artifacts into your local repository.
+
+== Step 2 — Maven coordinates
+
+[source,xml,subs=attributes+]
+----
+<dependency>
+    <groupId>io.vidocq.erasmus</groupId>
+    <artifactId>erasmus-api</artifactId>
+    <version>{project-version}</version>
+</dependency>
+<dependency>
+    <groupId>io.vidocq.erasmus</groupId>
+    <artifactId>erasmus-core</artifactId>
+    <version>{project-version}</version>
+    <scope>runtime</scope>
+</dependency>
+----
+
+`erasmus-api` re-exposes the Jakarta Validation API (`requires transitive jakarta.validation`); `erasmus-core` is the engine, discovered at runtime through the spec's `ValidationProvider` service — your code never touches an Erasmus class.
+
+== Step 3 — Declare the modules
+
+[source,java]
+----
+module com.acme.orders {
+    requires jakarta.validation;
+    // erasmus-core is a runtime-only provider: no requires needed —
+    // service binding finds it on the module path.
+}
+----
+
+== Step 4 — Constrain a bean
+
+[source,java]
+----
+package com.acme.orders;
+
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+public class Person {
+
+    @NotNull
+    @Size(min = 2, max = 20)
+    private String name;
+
+    public Person(String name) { this.name = name; }
+    public String getName()    { return name; }
+}
+----
+
+== Step 5 — Validate
+
+[source,java]
+----
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import jakarta.validation.ValidatorFactory;
+
+import java.util.Set;
+
+try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+    Validator validator = factory.getValidator();
+
+    Set<ConstraintViolation<Person>> violations = validator.validate(new Person("X"));
+
+    violations.forEach(v ->
+        System.out.println(v.getPropertyPath() + ": " + v.getMessage()));
+    // name: size must be between 2 and 20
+}
+----
+
+`buildDefaultValidatorFactory()` finds Erasmus through the standard provider discovery — the same code runs unchanged on any compliant implementation.
+
+== Next steps
+
+* xref:usage.adoc[Usage] — custom constraints, composition, message interpolation.
+* xref:concepts.adoc[Concepts] — how the engine models constraint metadata.
+* xref:tck.adoc[TCK status] — what is covered today, what is coming.

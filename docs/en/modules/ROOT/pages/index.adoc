@@ -1,0 +1,56 @@
+= Erasmus
+:description: Jakarta Validation 3.1 implementation — zero third-party dependency, native Java Modules, static code generation planned.
+
+// TODO: add modules/ROOT/images/erasmus-logo.png and the module-logo image block once the logo exists.
+
+[.lead]
+Erasmus is a Jakarta Validation 3.1 (Bean Validation) implementation in pure Java 25: zero third-party dependency (only the `jakarta.validation-api` spec jar), strict Java Modules, and — like every Vidocq brick — compile-time code generation planned where others reflect at runtime.
+
+[IMPORTANT]
+====
+Erasmus is **in development and not released yet** — there is no artifact on Maven Central. The engine, the 21 built-in constraints, custom/composed constraints and message interpolation work today; cascading, groups, executable validation, the APT code generator and the official TCK run are milestones in progress. This documentation describes the current `{project-version}` development line.
+====
+
+== Origin of the name
+
+Erasmus of Rotterdam (1466–1536), the humanist who spent his life critically validating texts against their sources — collating manuscripts, hunting inconsistencies, publishing corrected editions. See https://en.wikipedia.org/wiki/Erasmus[the Wikipedia article].
+
+That is what a Bean Validation engine does: check values against declared constraints, report every violation precisely, and never alter the text it validates. The name breaks with the French-figures convention of the other bricks for a good reason — the man predates them all, and nobody validated harder.
+
+== At a glance
+
+[cols="1,3"]
+|===
+| Implemented spec | {spec-validation-3-1}[Jakarta Validation 3.1]
+| Repo | {repo-erasmus}
+| Java | 25 (LTS)
+| Java modules | `io.vidocq.erasmus.api`, `io.vidocq.erasmus.core` (more as milestones land)
+| Runtime dependencies | None beyond `jakarta.validation`
+| Status | in development — engine and built-in constraints working, not released
+| Official TCK | planned (M8) — see xref:tck.adoc[TCK status]
+|===
+
+== Three identifying traits
+
+. **Zero third-party dependency** — the Jakarta Validation spec jar only. No Hibernate Validator, no Apache BVal, no external Expression Language implementation: message interpolation runs on a minimal, purpose-built EL subset.
+. **Standard bootstrap** — `Validation.buildDefaultValidatorFactory()` discovers Erasmus through the spec's `ValidationProvider` service. No Erasmus-specific API to learn.
+. **Codegen-first roadmap** — today the metadata model is built reflectively; milestone M5 introduces APT-generated per-bean constraint dispatchers, with differential testing between the reflective and generated paths.
+
+== Position in the ecosystem
+
+Erasmus is a foundational-style brick: it depends on no other Vidocq module. Planned integrations go the other way — CDI-managed `Validator` beans and `@ValidateOnExecution` method validation through Vauban (M7), automatic `ConstraintViolationException` mapping to HTTP 400 in Cassini (M9), and a Vidocq Runtime extension (M11).
+
+== Quick links
+
+* xref:getting-started.adoc[Getting started]
+* xref:usage.adoc[Usage patterns]
+* xref:concepts.adoc[Concepts]
+* xref:internals.adoc[Internals]
+* xref:tck.adoc[TCK status]
+* xref:reference.adoc[Reference]
+* xref:migration.adoc[Migration]
+
+[NOTE]
+====
+Performance numbers live in link:{repo-erasmus}/src/branch/main/BENCH.md[BENCH.md] (JMH harness against Hibernate Validator — no numbers recorded yet). None appear inline in this page.
+====

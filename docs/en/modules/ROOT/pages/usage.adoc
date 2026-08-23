@@ -1,0 +1,109 @@
+= Usage
+:description: Built-in constraints, custom constraints, composition, and message interpolation with Erasmus.
+
+[.lead]
+Everything on this page is standard Jakarta Validation 3.1 — Erasmus adds no proprietary annotation. What is listed here is what the current development line actually supports.
+
+== Built-in constraints
+
+All 21 constraint types of the specification are implemented: `@NotNull`, `@Null`, `@NotBlank`, `@NotEmpty`, `@Size`, `@Min`, `@Max`, `@DecimalMin`, `@DecimalMax`, `@Positive`, `@PositiveOrZero`, `@Negative`, `@NegativeOrZero`, `@Digits`, `@Pattern`, `@Email`, `@AssertTrue`, `@AssertFalse`, `@Past`, `@PastOrPresent`, `@Future` / `@FutureOrPresent` — across their spec-mandated target types (45 validator implementations).
+
+[source,java]
+----
+public class Order {
+
+    @NotBlank
+    private String reference;
+
+    @Positive
+    private int quantity;
+
+    @Email
+    private String contact;
+
+    @Future
+    private java.time.LocalDate deliveryDate;
+}
+----
+
+== Validating
+
+The three entry points of `jakarta.validation.Validator` work today:
+
+[source,java]
+----
+validator.validate(order);                                  // whole bean
+validator.validateProperty(order, "reference");             // one property
+validator.validateValue(Order.class, "quantity", -1);       // a candidate value
+----
+
+`getConstraintsForClass` exposes the constraint metadata; `forExecutables()` exists but executable (method/constructor) validation is a milestone in progress.
+
+== Custom constraints
+
+Standard authoring — annotation plus `ConstraintValidator`:
+
+[source,java]
+----
+@Target({ FIELD, METHOD, PARAMETER })
+@Retention(RUNTIME)
+@Constraint(validatedBy = PalindromeValidator.class)
+public @interface Palindrome {
+    String message() default "must read the same both ways";
+    Class<?>[] groups() default {};
+    Class<? extends Payload>[] payload() default {};
+}
+
+public class PalindromeValidator implements ConstraintValidator<Palindrome, String> {
+    @Override
+    public boolean isValid(String value, ConstraintValidatorContext ctx) {
+        if (value == null) return true;   // @NotNull's job, not ours
+        var clean = value.toLowerCase().replaceAll("\\W", "");
+        return new StringBuilder(clean).reverse().toString().equals(clean);
+    }
+}
+----
+
+A constraint can declare several validators for different target types (e.g. one for `Collection`, one for `Map`); Erasmus picks the most specific one from the validated type, boxing primitives as the spec requires, and throws `UnexpectedTypeException` when none fits.
+
+== Composed constraints
+
+Constraints compose by stacking them on a new annotation; `@ReportAsSingleViolation` collapses the report:
+
+[source,java]
+----
+@NotBlank
+@Size(min = 3, max = 16)
+@Pattern(regexp = "[a-z0-9_]+")
+@Constraint(validatedBy = {})
+@ReportAsSingleViolation
+@Target(FIELD) @Retention(RUNTIME)
+public @interface Username {
+    String message() default "not a valid username";
+    Class<?>[] groups() default {};
+    Class<? extends Payload>[] payload() default {};
+}
+----
+
+== Message interpolation
+
+Messages resolve from `ValidationMessages.properties` (bundled in English and French) and interpolate constraint attributes and a subset of Expression Language:
+
+[source,java]
+----
+@Size(min = 2, max = 20, message = "between {min} and {max} please")
+private String name;
+----
+
+The EL subset covers ternaries, `||` / `&&`, equality, relational, additive, multiplicative and unary operators — deliberately **not** method calls or nested navigation, which keeps the interpolator dependency-free and injection-safe. Anything beyond the subset renders literally.
+
+== Not there yet
+
+The following spec areas are milestones in progress — attempting them today will not behave per spec:
+
+* **Cascading and groups** (`@Valid`, group sequences) — M3;
+* **Container element extraction** (`List<@Email String>`) — M4 (`ValueExtractor` SPI);
+* **Executable validation** (method parameters / return values) — M5;
+* **XML mapping** — under evaluation, demand-driven.
+
+See the xref:migration.adoc[migration page] for what this means when coming from Hibernate Validator.
