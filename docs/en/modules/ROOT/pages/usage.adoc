@@ -6,7 +6,15 @@ Everything on this page is standard Jakarta Validation 3.1 — Erasmus adds no p
 
 == Built-in constraints
 
-All 21 constraint types of the specification are implemented: `@NotNull`, `@Null`, `@NotBlank`, `@NotEmpty`, `@Size`, `@Min`, `@Max`, `@DecimalMin`, `@DecimalMax`, `@Positive`, `@PositiveOrZero`, `@Negative`, `@NegativeOrZero`, `@Digits`, `@Pattern`, `@Email`, `@AssertTrue`, `@AssertFalse`, `@Past`, `@PastOrPresent`, `@Future` / `@FutureOrPresent` — across their spec-mandated target types (45 validator implementations).
+21 of the specification's 22 built-in constraint types are implemented: `@NotNull`, `@NotBlank`, `@NotEmpty`, `@Size`, `@Min`, `@Max`, `@DecimalMin`, `@DecimalMax`, `@Positive`, `@PositiveOrZero`, `@Negative`, `@NegativeOrZero`, `@Digits`, `@Pattern`, `@Email`, `@AssertTrue`, `@AssertFalse`, `@Past`, `@PastOrPresent`, `@Future` and `@FutureOrPresent` (38 validator implementations). The known gap is `@Null`, which has no validator yet.
+
+Target-type coverage is not complete for every constraint — transcribed from the validator sources:
+
+* `@NotEmpty` and `@Size` — `CharSequence`, `Collection`, `Map` and arrays;
+* `@DecimalMin`, `@DecimalMax` and `@Digits` — `Number` and `CharSequence`;
+* `@Min` and `@Max` — `Number` only (no `CharSequence` validator yet);
+* `@Past`, `@PastOrPresent`, `@Future` and `@FutureOrPresent` — `Instant`, `LocalDate` and `java.util.Date` only (the other temporal types listed by the spec are not covered yet);
+* the remaining constraints each target their single spec-defined type.
 
 [source,java]
 ----
@@ -37,7 +45,7 @@ validator.validateProperty(order, "reference");             // one property
 validator.validateValue(Order.class, "quantity", -1);       // a candidate value
 ----
 
-`getConstraintsForClass` exposes the constraint metadata; `forExecutables()` exists but executable (method/constructor) validation is a milestone in progress.
+`getConstraintsForClass` and `forExecutables()` both throw `UnsupportedOperationException` today: the constraint metadata API lands with milestone M6, executable (method/constructor) validation with milestone M5.
 
 == Custom constraints
 
@@ -45,7 +53,7 @@ Standard authoring — annotation plus `ConstraintValidator`:
 
 [source,java]
 ----
-@Target({ FIELD, METHOD, PARAMETER })
+@Target(FIELD)
 @Retention(RUNTIME)
 @Constraint(validatedBy = PalindromeValidator.class)
 public @interface Palindrome {
@@ -104,6 +112,6 @@ The following spec areas are milestones in progress — attempting them today wi
 * **Cascading and groups** (`@Valid`, group sequences) — M3;
 * **Container element extraction** (`List<@Email String>`) — M4 (`ValueExtractor` SPI);
 * **Executable validation** (method parameters / return values) — M5;
-* **XML mapping** — under evaluation, demand-driven.
+* **XML mapping** (`validation.xml`, constraint mappings) — planned as M10, demand-driven, not implemented.
 
 See the xref:migration.adoc[migration page] for what this means when coming from Hibernate Validator.

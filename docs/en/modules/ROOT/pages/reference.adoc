@@ -47,15 +47,15 @@ Not on Maven Central yet — build from source (see xref:getting-started.adoc[Ge
 | `Validation.buildDefaultValidatorFactory()` / `byDefaultProvider()` | ✔
 | `ValidatorFactory.getValidator()` / `usingContext()` / `close()` | ✔
 | `Validator.validate` / `validateProperty` / `validateValue` | ✔
-| `Validator.getConstraintsForClass` / `unwrap` | ✔
-| The 21 built-in constraints (45 validator target types) | ✔
+| `Validator.unwrap` | ✔
+| 21 of the 22 built-in constraints (38 validator classes) — `@Null` is not implemented | ✔
 | Custom constraints, multi-validator constraints, composition, `@ReportAsSingleViolation` | ✔
 | Message interpolation (attribute + localized bundles + EL subset) | ✔
 | `@Valid` cascading, groups, group sequences | M3
 | `ValueExtractor` / container element constraints | M4
-| `forExecutables()` method/constructor validation | M5
-| Constraint descriptor metadata (full) | M6
-| XML mapping | under evaluation
+| `forExecutables()` method/constructor validation — throws `UnsupportedOperationException` today | M5
+| `Validator.getConstraintsForClass` / constraint descriptor metadata — throws `UnsupportedOperationException` today | M6
+| XML mapping (`validation.xml`, constraint mappings) — not implemented | M10
 |===
 
 == Bugs and benchmarks

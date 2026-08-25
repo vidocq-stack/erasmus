@@ -13,7 +13,7 @@ If your code sticks to the **standard API**, there is nothing to migrate:
 | You use today | With Erasmus
 
 | `Validation.buildDefaultValidatorFactory()` | identical
-| The 21 `jakarta.validation.constraints.*` annotations | identical
+| The `jakarta.validation.constraints.*` annotations | identical for 21 of the 22 — `@Null` has no validator yet
 | Custom `ConstraintValidator` implementations | identical
 | Composed constraints / `@ReportAsSingleViolation` | identical
 | `ValidationMessages.properties` bundles | identical (EN + FR shipped for the built-ins)
@@ -28,7 +28,7 @@ Swap the provider on the module path, and the standard bootstrap picks Erasmus u
 * **Method validation** (`@ValidateOnExecution`, CDI interceptor) — engine part is M5, CDI wiring M7.
 * **Full EL in messages** — Erasmus interpolates a deliberate EL *subset* (no method calls, no nested navigation). Messages using `${validatedValue.method()}`-style expressions render literally.
 * **Provider-specific APIs** — `HibernateValidatorConfiguration`, programmatic constraint mapping, and other vendor extensions have no Erasmus equivalent, by design.
-* **XML constraint mapping** (`validation.xml` constraint declarations) — under evaluation, demand-driven.
+* **XML constraint mapping** (`validation.xml` constraint declarations) — planned as M10, demand-driven, not implemented.
 
 == Philosophy difference
 

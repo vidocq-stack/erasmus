@@ -11,13 +11,13 @@ For contributors: where the code lives and the rules it obeys. Users never need 
 | Module | Purpose
 
 | `erasmus-api` | Aggregator that re-exposes the spec (`requires transitive jakarta.validation`). No forked API classes.
-| `erasmus-core` | The engine: bootstrap, metadata, the 21 built-in constraints (45 validators), interpolation.
+| `erasmus-core` | The engine: bootstrap, metadata, 21 of the 22 built-in constraints (38 validators — `@Null` pending), interpolation.
 | `erasmus-codegen-apt` | APT processor generating per-bean static constraint dispatchers — M5, placeholder today.
 | `erasmus-codegen-maven-plugin` | Mojo generating dispatchers for third-party jars that cannot run the APT — M5.
 | `erasmus-cdi-vauban` | CDI beans + `@ValidateOnExecution` interceptor via Vauban — M7, placeholder.
 | `erasmus-jaxrs` | `ExceptionMapper<ConstraintViolationException>` → HTTP 400 for Cassini — M9, placeholder.
-| `erasmus-bench` | JMH harness against Hibernate Validator (results go to `BENCH.md`).
-| `erasmus-examples` | Usage examples.
+| `erasmus-bench` | Placeholder for the JMH harness against Hibernate Validator — no sources yet (results will go to `BENCH.md`).
+| `erasmus-examples` | Placeholder for usage examples — no sources yet.
 | `erasmus-tck` | Official TCK runner, reactor-included only under `-Ptck` — M8.
 |===
 
@@ -31,7 +31,7 @@ Group id `io.vidocq.erasmus`, parent `io.vidocq:vidocq-parent`.
 
 * `internal/ErasmusValidationProvider` → `ErasmusValidatorFactory` → `ErasmusValidator` — the spec objects.
 * `internal/metadata/` — `BeanMetadata`, `ConstraintMetadataBuilder`, field/method/property accessors. Built lazily per class, cached.
-* `internal/constraints/BuiltinConstraints` — the registry mapping the 21 spec annotations to their 45 validators.
+* `internal/constraints/BuiltinConstraints` — the registry mapping the 21 implemented spec annotations to their 38 validators.
 * `internal/ConstraintValidatorResolver` — most-specific validator selection over generic interfaces (primitives boxed, `UnexpectedTypeException` on no match).
 * `ErasmusMessageInterpolator` + `MinimalElExpression` — bundle lookup (`ValidationMessages`, EN + FR) then the EL-subset pass.
 
@@ -41,10 +41,10 @@ The workspace-wide philosophy applies verbatim (see the repo's `CLAUDE.md`):
 
 * zero third-party dependency — spec jar only;
 * strict Java Modules, no unjustified `opens`;
-* TDD — the engine grew test-first (per-constraint test classes, bootstrap tests, authoring tests);
+* TDD — the engine grew test-first (grouped constraint test classes, bootstrap tests, authoring tests);
 * virtual-thread friendliness — no `synchronized` on hot paths, no `ThreadLocal`;
 * say **Java Modules**, never the abbreviation.
 
 == Testing strategy
 
-Each built-in constraint has a dedicated test class; custom-constraint authoring, locale interpolation, and the EL subset have their own suites. From M5 on, the plan adds *differential* testing: every scenario runs on both the reflective path and the generated dispatchers, and the outputs must match.
+The built-in validators are covered by 13 test classes, several grouping a constraint family (`AssertBooleanValidatorTest`, `PositiveNegativeValidatorTest`, `DecimalMinMaxValidatorTest`, `PastFutureValidatorTest`); custom-constraint authoring, bootstrap discovery, end-to-end validation, locale interpolation, and the EL subset have their own suites. From M5 on, the plan adds *differential* testing: every scenario runs on both the reflective path and the generated dispatchers, and the outputs must match.

@@ -8,6 +8,14 @@ Erasmus is not on Maven Central yet, so getting started means building it from s
 
 * **Java 25** (Temurin recommended)
 * **Maven 3.9.16** — pinned via `.sdkmanrc` in the repo (`sdk env`)
+* **`io.vidocq:vidocq-parent:0.3.0-SNAPSHOT` installed in your local Maven repository** — the Erasmus reactor inherits from it with an empty `relativePath`, so a fresh clone does not build without it:
+
+[source,bash]
+----
+git clone https://codefloe.com/Vidocq/vidocq-parent.git
+cd vidocq-parent
+./mvnw -ntp install
+----
 
 == Step 1 — Build from source
 

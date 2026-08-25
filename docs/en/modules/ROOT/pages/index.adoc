@@ -8,7 +8,7 @@ Erasmus is a Jakarta Validation 3.1 (Bean Validation) implementation in pure Jav
 
 [IMPORTANT]
 ====
-Erasmus is **in development and not released yet** — there is no artifact on Maven Central. The engine, the 21 built-in constraints, custom/composed constraints and message interpolation work today; cascading, groups, executable validation, the APT code generator and the official TCK run are milestones in progress. This documentation describes the current `{project-version}` development line.
+Erasmus is **in development and not released yet** — there is no artifact on Maven Central. The engine, 21 of the spec's 22 built-in constraints (`@Null` pending), custom/composed constraints and message interpolation work today; cascading, groups, executable validation, the APT code generator and the official TCK run are milestones in progress. This documentation describes the current `{project-version}` development line.
 ====
 
 == Origin of the name

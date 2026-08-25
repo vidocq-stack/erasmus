@@ -18,7 +18,7 @@ Honest status: the official Jakarta Validation 3.1 TCK has **not been run** agai
 
 == Interim coverage
 
-Until the official suite runs, correctness is carried by the in-repo test suite: per-constraint test classes for the 21 built-in constraints, bootstrap and factory lifecycle tests, custom/composed constraint authoring tests, locale interpolation and EL-subset tests — written test-first, per the workspace TDD rule.
+Until the official suite runs, correctness is carried by the in-repo test suite: grouped constraint test classes covering the 21 implemented built-in constraints, bootstrap and factory lifecycle tests, custom/composed constraint authoring tests, locale interpolation and EL-subset tests — written test-first, per the workspace TDD rule.
 
 == Tracking
 

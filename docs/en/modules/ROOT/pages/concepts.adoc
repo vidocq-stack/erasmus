@@ -18,7 +18,7 @@ in its `module-info.java`. Put `erasmus-core` on the module path and the standar
 
 == Constraint metadata
 
-When a type is first validated, Erasmus builds its `BeanMetadata`: every field, getter and class-level constraint, resolved once and cached. Accessors are modelled explicitly (field access vs property access), so `validateProperty` and `getConstraintsForClass` answer from the same model the validator uses.
+When a type is first validated, Erasmus builds its `BeanMetadata`: every field, getter and class-level constraint, resolved once and cached. Accessors are modelled explicitly (field access vs property access), so `validateProperty` answers from the same model `validate` uses. (`getConstraintsForClass` does not expose this model yet — it throws `UnsupportedOperationException` until the metadata API lands in M6.)
 
 This is currently a *reflective* build — the one place where Erasmus still reflects. It is deliberately isolated behind the metadata API so that milestone M5 can swap in APT-generated per-bean dispatchers without touching the engine, and run both paths differentially in the test suite.
 
@@ -40,7 +40,7 @@ The spec's message syntax allows Expression Language. Shipping a full EL impleme
 | M4 | `ValueExtractor` SPI — container element constraints (`List<@Email String>`).
 | M5 | Executable validation and the APT dispatcher generator (codegen replaces the reflective metadata build).
 | M6 | Full constraint-descriptor metadata API.
-| M7–M11 | CDI (Vauban) integration, official TCK, Cassini (REST) mapping, Vidocq Runtime extension.
+| M7–M11 | CDI (Vauban) integration, official TCK, Cassini (REST) mapping, XML mapping (`validation.xml` — planned, not implemented today), Vidocq Runtime extension.
 |===
 
 Details and status: `ROADMAP.md` in {repo-erasmus}[the repo].
