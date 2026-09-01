@@ -42,9 +42,9 @@ import java.util.Set;
  * Reflective {@link ConstraintDescriptor}: built once per (property, annotation)
  * pair by {@link ConstraintMetadataBuilder} and cached in {@code BeanMetadata}.
  *
- * <p>Explicit {@code groups} are out of scope until ROADMAP M3 — every constraint is
- * currently reported under the {@link Default} group only. {@code payload} (M2) and
- * composed constraints / {@code @ReportAsSingleViolation} (M2) are read through.
+ * <p>{@code groups} (M3), {@code payload} (M2), and composed constraints /
+ * {@code @ReportAsSingleViolation} (M2) are all read through from the annotation's own
+ * attributes rather than hardcoded.
  */
 public final class ConstraintDescriptorImpl<A extends Annotation> implements ConstraintDescriptor<A> {
 
@@ -127,8 +127,12 @@ public final class ConstraintDescriptorImpl<A extends Annotation> implements Con
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Set<Class<?>> getGroups() {
-        return Set.of(Default.class);
+        // Every @Constraint annotation declares Class<?>[] groups() default {} — an empty
+        // array means "no explicit group," which the spec maps to the Default group.
+        Class<?>[] groups = (Class<?>[]) attributes.get("groups");
+        return groups == null || groups.length == 0 ? Set.of(Default.class) : Set.of(groups);
     }
 
     @Override
