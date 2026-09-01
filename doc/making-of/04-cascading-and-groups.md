@@ -16,6 +16,18 @@ Then it was time to start M3. From `ROADMAP.md`:
 > for single bean references, correct group-sequence short-circuiting for the
 > single-sequence-group case. 87 tests total (up from 76), all green.
 
+## What "cascaded validation" even means
+
+The ROADMAP quote above uses the term without defining it, so worth pausing on before
+anything else: **cascaded validation** is the spec's name for validation *cascading* —
+flowing down — from the root bean a caller hands to `validate(...)`, through the graph of
+objects it references, instead of stopping at that root bean's own properties. A `Person`
+holding an `Address`, which might itself hold a `Country`: cascaded validation is what lets
+one `validate(person)` call reach all the way down that chain and catch a problem anywhere
+in it, rather than only ever seeing `Person`'s own directly-declared constraints. `@Valid` is
+the annotation that turns cascading on for a given property — see below for exactly what
+that looks like.
+
 ## What `@Valid` actually does
 
 Every milestone before this one only ever looked at the properties declared directly on
