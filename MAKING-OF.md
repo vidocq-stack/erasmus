@@ -14,3 +14,6 @@ each post stays a readable size — new posts get added as new milestones land.*
 2. [M2: the full built-in constraint set, message interpolation, and custom constraints](doc/making-of/02-full-constraint-set-and-interpolation.md) —
    the remaining 15 built-in constraints, locale-aware message bundles, a homegrown EL-subset
    evaluator, and custom constraint authoring (composed constraints, `@ReportAsSingleViolation`).
+3. [Migrating the whole workspace from Codeberg to Codefloe](doc/making-of/03-migrating-to-codefloe.md) —
+   an infrastructure story, not a milestone: SSH keys, `mani.yaml`, and repointing all 20
+   Vidocq repositories to the new host.
