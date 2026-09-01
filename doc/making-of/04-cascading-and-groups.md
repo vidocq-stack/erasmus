@@ -14,7 +14,7 @@ Then it was time to start M3. From `ROADMAP.md`:
 >
 > **Deliverable:** cascaded validation across arbitrary (including circular) object graphs
 > for single bean references, correct group-sequence short-circuiting for the
-> single-sequence-group case.
+> single-sequence-group case. 87 tests total (up from 76), all green.
 
 ## Cascading: one property, a multi-segment path
 
