@@ -16,10 +16,73 @@ Then it was time to start M3. From `ROADMAP.md`:
 > for single bean references, correct group-sequence short-circuiting for the
 > single-sequence-group case. 87 tests total (up from 76), all green.
 
-## Cascading: one property, a multi-segment path
+## What `@Valid` actually does
 
-`@Valid` on a property tells the validator to descend into it. `PathImpl` only knew how to
-be a single segment before this, so the first real change was giving it an `append`:
+Every milestone before this one only ever looked at the properties declared directly on
+whatever bean you handed to `validate(...)`. Take a `Person` with an `Address` field:
+
+```java
+public class Address {
+    @NotBlank
+    private String city;
+}
+
+public class Person {
+    private Address address;   // no @Valid yet
+}
+```
+
+`Address` has its own real constraint (`city` must not be blank), but
+`validator.validate(person)` has no reason to know that `Address` even exists as a
+constrained type — it just reads `Person`'s own properties, and `address` isn't one of
+them, it's just a plain field holding some object. So this happily reports **zero
+violations** even if `address.city` is blank. Proven directly, from
+`CascadingAndGroupsTest`:
+
+```java
+@Test
+void withoutValidAnnotation_nestedBeanIsNotChecked() {
+    assertTrue(validator.validate(new PersonWithPlainAddress(new Address(""))).isEmpty());
+}
+```
+
+`@Valid` is the annotation that changes this. Put it on the `address` field, and
+`validate(person)` no longer treats `Address` as an opaque value — it descends into it and
+validates *its* constraints too, as part of the same call:
+
+```java
+public class Person {
+    @Valid
+    private Address address;
+}
+```
+
+```java
+@Test
+void cascading_descendsIntoValidAnnotatedProperty_withDottedPath() {
+    Set<ConstraintViolation<PersonWithCascadedAddress>> violations =
+            validator.validate(new PersonWithCascadedAddress(new Address("")));
+
+    assertEquals(1, violations.size());
+    assertEquals("address.city", violations.iterator().next().getPropertyPath().toString());
+}
+```
+
+Same broken `Address`, same call shape (`validator.validate(person)`) — the only difference
+is the single annotation on the field. Now it comes back with one violation, and its
+`getPropertyPath()` reads `"address.city"`, not just `"city"` or `"address"` — enough
+information on its own to know both *which* nested object failed and *which* property of it,
+without the caller having to separately dig into `getRootBean()`/`getLeafBean()` to figure
+that out. That's the entire point of cascading: without it, a bean graph is only ever
+validated one flat layer at a time; with it, `validate()` on the root is enough to catch
+problems anywhere in the graph it's willing to cascade into.
+
+## How it's built: one property, a multi-segment path
+
+Two things had to change to make the example above work. First, `PathImpl` only knew how to
+*be* a single segment before this milestone — there was never a nested property to point
+into, so `"address.city"` as a path literally couldn't be constructed. The fix is an
+`append`, called once per level of descent:
 
 ```java
 PathImpl append(String propertyName) {
@@ -29,12 +92,13 @@ PathImpl append(String propertyName) {
 }
 ```
 
-`ConstraintMetadataBuilder` needed to know a property carries `@Valid` even when it has no
-constraints of its own — a plain `@Valid private Address address;` has zero
-`ConstraintDescriptor`s but still needs recording, or the walk would never look at it. Small
-but easy to get wrong: the builder used to skip any field with no constraint annotations at
-all, so "cascaded but otherwise unconstrained" had to become its own reason to keep a
-property, not a side effect of already keeping it for its constraints.
+Second, `ConstraintMetadataBuilder` needed to know a property carries `@Valid` even when it
+has *no constraints of its own* — a plain `@Valid private Address address;`, exactly like
+the example above, has zero `ConstraintDescriptor`s on the `address` field itself (the
+`@NotBlank` is on `Address.city`, a different class entirely). Small but easy to get wrong:
+the builder used to skip any field with no constraint annotations at all, so "cascaded but
+otherwise unconstrained" had to become its own reason to keep a property, not a side effect
+of already keeping it for its constraints.
 
 ## Cycle detection: identity, not `equals`, scoped per group sheet
 
