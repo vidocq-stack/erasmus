@@ -25,6 +25,7 @@ import jakarta.validation.Validator;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +34,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** ROADMAP M3: {@code @Valid} cascading and cycle detection (groups follow). */
+/** ROADMAP M3: {@code @Valid} cascading, cycle detection, and groups. */
 class CascadingAndGroupsTest {
 
     private Validator validator;
@@ -129,5 +130,39 @@ class CascadingAndGroupsTest {
 
         assertEquals(1, violations.size());
         assertEquals("name", violations.iterator().next().getPropertyPath().toString());
+    }
+
+    // --- Groups ---
+
+    private interface Strict {
+    }
+
+    private static final class Account {
+        @NotBlank
+        private String username;
+
+        @Size(min = 8, groups = Strict.class)
+        private String password;
+
+        Account(String username, String password) {
+            this.username = username;
+            this.password = password;
+        }
+    }
+
+    @Test
+    void defaultGroup_onlyEvaluatesDefaultGroupConstraints() {
+        Set<ConstraintViolation<Account>> violations = validator.validate(new Account("", "short"));
+
+        assertEquals(1, violations.size());
+        assertEquals("username", violations.iterator().next().getPropertyPath().toString());
+    }
+
+    @Test
+    void explicitGroup_onlyEvaluatesThatGroupsConstraints() {
+        Set<ConstraintViolation<Account>> violations = validator.validate(new Account("", "short"), Strict.class);
+
+        assertEquals(1, violations.size());
+        assertEquals("password", violations.iterator().next().getPropertyPath().toString());
     }
 }
