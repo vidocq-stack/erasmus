@@ -78,7 +78,22 @@ the `ValueExtractor` SPI handles every container type at once. That split is our
 not the spec's — which is exactly why the quote sits here: read the whole requirement, not
 just the half we shipped.
 
-Before any of this existed, the test written for exactly that behavior was red:
+Here is the test, written first. It wraps a blank `Address` in a `Person` and asks two things
+of `validate(person)`: exactly one violation, and a path that says *where* — `address.city`,
+the nested property, not just `city`:
+
+```java
+@Test
+void cascading_descendsIntoValidAnnotatedProperty_withDottedPath() {
+    Set<ConstraintViolation<PersonWithCascadedAddress>> violations =
+            validator.validate(new PersonWithCascadedAddress(new Address("")));
+
+    assertEquals(1, violations.size());
+    assertEquals("address.city", violations.iterator().next().getPropertyPath().toString());
+}
+```
+
+Before any of this existed, it was red on the very first assertion:
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
@@ -148,7 +163,41 @@ says what "already visited" means, [Jakarta Bean Validation 3.1, §5.7.1 *Object
 > navigation path (starting from the root object).
 
 Two words in there matter below: *instance* (identity, not `equals()`) and *navigation path*.
-The test for it, written before either mechanism existed:
+
+The fixture is the smallest graph that can loop — a `Node` with a constrained `name` and a
+`@Valid next`:
+
+```java
+private static final class Node {
+    @NotNull
+    private String name;
+
+    @Valid
+    private Node next;
+}
+```
+
+The test wires two of them into a ring and asks for exactly two violations: `a`'s own `name`,
+and `b`'s reached as `next.name`. Two — not one, which would mean no descent happened, and
+not a `StackOverflowError`, which would mean descent never stopped:
+
+```java
+@Test
+void circularGraph_terminatesAndValidatesEachNodeOnce() {
+    Node a = new Node(null);
+    Node b = new Node(null);
+    a.next = b;
+    b.next = a;
+
+    Set<ConstraintViolation<Node>> violations = validator.validate(a);
+
+    assertEquals(2, violations.size());
+    assertTrue(violations.stream().anyMatch(v -> v.getPropertyPath().toString().equals("name")));
+    assertTrue(violations.stream().anyMatch(v -> v.getPropertyPath().toString().equals("next.name")));
+}
+```
+
+Before either mechanism existed:
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
@@ -244,7 +293,41 @@ what was requested. Both halves are spelled out — [Jakarta Bean Validation 3.1
 and, for the call site, [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups): "If no group is passed, the `Default` group is assumed."
 Two tests pin this down: one confirming the *default* call still only
 sees `Default`-group constraints, one confirming an *explicit* group call only sees that
-group's. Both were red before groups existed at all:
+group's. Same `Account` in both, same broken values — a blank `username` under a plain
+`@NotBlank` (so, `Default`) and a too-short `password` under `@Size(groups = Strict.class)`:
+
+```java
+private static final class Account {
+    @NotBlank
+    private String username;
+
+    @Size(min = 8, groups = Strict.class)
+    private String password;
+}
+```
+
+The two tests differ by a single argument to `validate`, and each expects the *other*
+violation to be the only one:
+
+```java
+@Test
+void defaultGroup_onlyEvaluatesDefaultGroupConstraints() {
+    Set<ConstraintViolation<Account>> violations = validator.validate(new Account("", "short"));
+
+    assertEquals(1, violations.size());
+    assertEquals("username", violations.iterator().next().getPropertyPath().toString());
+}
+
+@Test
+void explicitGroup_onlyEvaluatesThatGroupsConstraints() {
+    Set<ConstraintViolation<Account>> violations = validator.validate(new Account("", "short"), Strict.class);
+
+    assertEquals(1, violations.size());
+    assertEquals("password", violations.iterator().next().getPropertyPath().toString());
+}
+```
+
+Both were red before groups existed at all:
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
@@ -313,7 +396,21 @@ constraint in play — so "run everything" and "run the right thing" produce the
 when there's nothing else competing for attention. A passing test isn't always proof; it
 took the `Default`-vs-explicit tests above (which *do* have two competing constraints) to
 actually expose that groups weren't implemented yet. Real proof, now that inheritance is
-actually implemented on purpose rather than accidentally correct:
+actually implemented on purpose rather than accidentally correct — `Item` declares its only
+constraint under `BaseGroup`, and the test asks for `ExtendedGroup`, which extends it:
+
+```java
+private interface BaseGroup {
+}
+
+private interface ExtendedGroup extends BaseGroup {
+}
+
+private static final class Item {
+    @NotNull(groups = BaseGroup.class)
+    private String sku;
+}
+```
 
 ```java
 @Test
@@ -340,7 +437,43 @@ first and, if any fail, never even look at `StepTwo`'s — [Jakarta Bean Validat
 > the groups processed in the sequence generates one or more constraint violations, the groups
 > following in the sequence must not be processed.
 
-Before sequences existed, the test for the "stops at the first failure" direction was red:
+The fixture: two step groups, a sequence over them, and a `Form` with one `@NotBlank` per
+step:
+
+```java
+private interface StepOne {
+}
+
+private interface StepTwo {
+}
+
+@GroupSequence({StepOne.class, StepTwo.class})
+private interface OrderedSequence {
+}
+
+private static final class Form {
+    @NotBlank(groups = StepOne.class)
+    private String field1;
+
+    @NotBlank(groups = StepTwo.class)
+    private String field2;
+}
+```
+
+Both fields blank, so both steps *would* fail if evaluated. The test asks for exactly one
+violation, on `field1` — `StepTwo` must never have run:
+
+```java
+@Test
+void groupSequence_stopsAtFirstFailingGroup() {
+    Set<ConstraintViolation<Form>> violations = validator.validate(new Form("", ""), OrderedSequence.class);
+
+    assertEquals(1, violations.size());
+    assertEquals("field1", violations.iterator().next().getPropertyPath().toString());
+}
+```
+
+Before sequences existed, it was red:
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
@@ -407,20 +540,25 @@ question is whether they compose: does a cascaded property's own constraint stil
 the group that was requested at the *root* `validate()` call? The spec answers in one line,
 [Jakarta Bean Validation 3.1, §5.7.1 *Object graph validation*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-validationroutine-graphvalidation): "`@Valid` is an orthogonal concept to the notion of group. If two groups are in
 sequence, the first group must pass for all associated objects before the second group is
-evaluated." Orthogonal, so the requested groups travel down the graph unchanged. Before groups
-existed, this was red too:
+evaluated." Orthogonal, so the requested groups travel down the graph unchanged.
 
+`StrictAddress` is `Address` with its one constraint moved into the `Strict` group, behind a
+`@Valid`:
+
+```java
+private static final class StrictAddress {
+    @NotBlank(groups = Strict.class)
+    private String city;
+}
+
+private static final class PersonWithStrictAddress {
+    @Valid
+    private StrictAddress address;
+}
 ```
-$ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
-[ERROR]   CascadingAndGroupsTest.cascadedProperty_respectsRequestedGroupsDuringTraversal:261 expected: <1> but was: <0>
-```
 
-**What was built.** Nothing new, mechanically — the graph walk in `validateGraph` already
-threads `effectiveGroups` down through every recursive call, unchanged as it descends. This
-test exists specifically to confirm that threading actually happens rather than resetting to
-`Default` (or nothing) at each level.
-
-**Proof.**
+The test validates the same `person` twice: under `Default` it expects nothing — the nested
+constraint is not in that group — and under `Strict` it expects `address.city`:
 
 ```java
 @Test
@@ -433,6 +571,26 @@ void cascadedProperty_respectsRequestedGroupsDuringTraversal() {
     assertEquals(1, violations.size());
     assertEquals("address.city", violations.iterator().next().getPropertyPath().toString());
 }
+```
+
+Before groups existed, it was red too:
+
+```
+$ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
+[ERROR]   CascadingAndGroupsTest.cascadedProperty_respectsRequestedGroupsDuringTraversal:261 expected: <1> but was: <0>
+```
+
+**What was built.** Nothing new, mechanically — the graph walk in `validateGraph` already
+threads `effectiveGroups` down through every recursive call, unchanged as it descends. This
+test exists specifically to confirm that threading actually happens rather than resetting to
+`Default` (or nothing) at each level.
+
+**Proof.** The same test, green:
+
+```
+$ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest#cascadedProperty_respectsRequestedGroupsDuringTraversal
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.314 s
+[INFO] BUILD SUCCESS
 ```
 
 ## Making this compose with M2's composed constraints
