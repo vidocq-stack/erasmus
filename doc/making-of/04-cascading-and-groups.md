@@ -69,11 +69,14 @@ None of that is our invention — it is the spec's definition of the feature, [J
 > the `@Valid` annotation, the Validator will validate Y (and its properties) when X is
 > validated.
 
-The same section then requires it for "Collection-valued, array-valued and generally
-`Iterable` fields and properties" ("This causes the contents of the iterator to be
-validated"). The spec draws no line between a single reference and a collection; this
-milestone does, and defers the collection half to M4 — a narrowing worth seeing against the
-text, not just against `ROADMAP.md`.
+Note what else the same section asks for. `@Valid` on "Collection-valued, array-valued and
+generally `Iterable` fields and properties" must validate every element ("This causes the
+contents of the iterator to be validated"). For the spec, a single reference and a collection
+are one and the same requirement, stated in one breath. This milestone implements only the
+single reference; validating the elements of a collection, array or `Map` waits for M4, where
+the `ValueExtractor` SPI handles every container type at once. That split is our decision,
+not the spec's — which is exactly why the quote sits here, so the reader can see the whole
+requirement and not just the half we shipped.
 
 Before any of this existed, the test written for exactly that behavior was red:
 
