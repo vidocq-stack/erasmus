@@ -510,3 +510,40 @@ M4: container-element constraints via the `ValueExtractor` SPI —
 `List<@NotBlank String>`, `Optional<@Positive Integer>`, `Map<@NotNull String, @Valid
 Address>` — which is also where the cascading-into-collections gap from this milestone
 gets closed, uniformly, instead of as a one-off.
+
+## Postscript: what quoting the spec turned up
+
+This series has a rule against talking about itself, and this section breaks it once, on
+purpose, because a rule of the series changed the outcome of the milestone.
+
+The spec quotes above were not in the first version of this post. The seven commits were
+done, the post was written, the proofs were green. Then came the request to quote, in every
+section, the sentence of Bean Validation 3.1 the section implements — verbatim, with its
+section number, fetched from the actual text rather than recalled. To do that, Claude pulled
+the 3.1 HTML and read the relevant sections side by side with the code. Three things came
+out of that reading that nothing before it had caught:
+
+- **`@NotBlank` and `@NotEmpty` were wrong since M1** (`E-001`). §8.21 and §8.20 say "must
+  not be `null`"; our convention said every validator but `@NotNull` accepts `null`, the
+  validators did exactly that, and unit tests pinned the wrong behavior down for two
+  milestones. The gotcha section of this very post had blamed the *test* for expecting a
+  violation on `null`. The test was right.
+- **Cycle detection diverges from §5.7.1** (`E-002`). The spec scopes "already validated" to
+  the current navigation path; ours is scoped to the whole call. Same termination, different
+  answer for an instance shared by two `@Valid` properties. Neither `ROADMAP.md` nor the
+  first version of this post noticed — both described what I *meant* to build.
+- **A documented gap was half imaginary.** Flattening several plain groups into one unordered
+  set is what §6.1.3 prescribes, not a shortcut we took. The real gap is narrower than the
+  one we had written up.
+
+Why did this catch what TDD and the roadmap didn't? Because the tests encode what I believed
+the spec said, and the roadmap is my reformulation of it — both inherit the same misreading,
+and both pass each other's checks. Before the TCK lands at M8, the only independent oracle is
+the text itself, and "quote it, verbatim" is a cheap way to force an actual read of it at the
+sentence level. Paraphrasing from memory would have produced plausible citations and found
+nothing; the cost of fetching a page and copying a sentence is minutes, and it paid for
+itself twice in one post.
+
+It does not replace the TCK — it only finds what happens to sit next to the sentences you
+went looking for. But it is the first time in this series that a rule about *writing* the
+journal fed back into the *code*, and that seemed worth recording once.
