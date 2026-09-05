@@ -25,15 +25,18 @@ import jakarta.validation.Validator;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** ROADMAP M3: {@code @Valid} cascading and cycle detection (groups follow). */
+/** ROADMAP M3: {@code @Valid} cascading, cycle detection, and groups. */
 class CascadingAndGroupsTest {
 
     private Validator validator;
@@ -129,5 +132,53 @@ class CascadingAndGroupsTest {
 
         assertEquals(1, violations.size());
         assertEquals("name", violations.iterator().next().getPropertyPath().toString());
+    }
+
+    // --- Groups ---
+
+    private interface Strict {
+    }
+
+    /**
+     * Exactly two constraints, in two different groups, and the fixture below violates both at
+     * once: {@code username} is blank (@NotBlank, no groups() declared, so the Default group)
+     * and {@code password} is shorter than 8 (@Size, declared in the Strict group only).
+     * Each call below therefore has to report one of them and skip the other — which is what
+     * makes them tell "filter by group" apart from "evaluate everything".
+     */
+    private static final class Account {
+        @NotBlank
+        private String username;
+
+        @Size(min = 8, groups = Strict.class)
+        private String password;
+
+        Account(String username, String password) {
+            this.username = username;
+            this.password = password;
+        }
+    }
+
+    /** The violated property paths, so a failure prints which constraints fired, not just how many. */
+    private static Set<String> violatedPaths(Set<? extends ConstraintViolation<?>> violations) {
+        return violations.stream()
+                .map(violation -> violation.getPropertyPath().toString())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    @Test
+    void defaultGroup_onlyEvaluatesDefaultGroupConstraints() {
+        Set<ConstraintViolation<Account>> violations = validator.validate(new Account("", "short"));
+
+        assertEquals(Set.of("username"), violatedPaths(violations),
+                "Default requested: @NotBlank on username must fire, @Size(groups = Strict) on password must not");
+    }
+
+    @Test
+    void explicitGroup_onlyEvaluatesThatGroupsConstraints() {
+        Set<ConstraintViolation<Account>> violations = validator.validate(new Account("", "short"), Strict.class);
+
+        assertEquals(Set.of("password"), violatedPaths(violations),
+                "Strict requested: @Size(groups = Strict) on password must fire, @NotBlank on username must not");
     }
 }
