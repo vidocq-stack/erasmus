@@ -46,11 +46,11 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Bean Validation engine: {@code @Valid} cascading with cycle detection (ROADMAP M3), plus
- * custom constraint authoring — composed constraints and {@code @ReportAsSingleViolation}
- * (ROADMAP M2) — over a reflective bean-metadata model. No groups yet (every constraint is
- * evaluated regardless of the {@code groups} vararg — later in M3), no container-element
- * unwrapping (see M4), no executable validation (see M5).
+ * Bean Validation engine: {@code @Valid} cascading with cycle detection and group
+ * filtering (ROADMAP M3), plus custom constraint authoring — composed constraints and
+ * {@code @ReportAsSingleViolation} (ROADMAP M2) — over a reflective bean-metadata model.
+ * No {@code @GroupSequence} yet (later in M3), no container-element unwrapping (see M4),
+ * no executable validation (see M5).
  */
 final class ErasmusValidator implements Validator {
 
@@ -79,12 +79,13 @@ final class ErasmusValidator implements Validator {
         }
         @SuppressWarnings("unchecked")
         Class<T> beanClass = (Class<T>) object.getClass();
+        List<Class<?>> effectiveGroups = GroupsSupport.resolve(groups);
 
         Set<ConstraintViolation<T>> violations = new LinkedHashSet<>();
         // Cycle detection is scoped to this one validate() call — never a static or shared
         // cache — and keyed on bean identity, not equals().
         Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-        validateGraph(object, beanClass, object, null, visited, violations);
+        validateGraph(object, beanClass, object, effectiveGroups, null, visited, violations);
         return violations;
     }
 
@@ -99,7 +100,7 @@ final class ErasmusValidator implements Validator {
         Object value = property.accessor().get(object);
 
         Set<ConstraintViolation<T>> violations = new LinkedHashSet<>();
-        validatePropertyConstraints(object, beanClass, object, property, value, violations);
+        validatePropertyConstraints(object, beanClass, object, property, value, GroupsSupport.resolve(groups), violations);
         return violations;
     }
 
@@ -110,7 +111,7 @@ final class ErasmusValidator implements Validator {
         Set<ConstraintViolation<T>> violations = new LinkedHashSet<>();
         // Per spec: getRootBean()/getLeafBean() legitimately return null here — there is
         // no bean instance, only a candidate value for a property not yet assigned to one.
-        validatePropertyConstraints(null, beanType, null, property, value, violations);
+        validatePropertyConstraints(null, beanType, null, property, value, GroupsSupport.resolve(groups), violations);
         return violations;
     }
 
@@ -121,13 +122,14 @@ final class ErasmusValidator implements Validator {
     }
 
     /**
-     * Recursive graph walk: validates every constrained property of {@code currentBean},
-     * then descends into any {@code @Valid}-cascaded property whose value is non-null.
-     * {@code pathPrefix} is {@code null} at the root bean itself; nested calls extend it one
-     * property segment at a time. {@code visited} guards against infinite recursion on
-     * circular graphs — bean *identity*, not {@code equals()}.
+     * Recursive graph walk: validates every constrained property of {@code currentBean}
+     * against {@code effectiveGroups}, then descends into any {@code @Valid}-cascaded
+     * property whose value is non-null. {@code pathPrefix} is {@code null} at the root bean
+     * itself; nested calls extend it one property segment at a time. {@code visited} guards
+     * against infinite recursion on circular graphs — bean *identity*, not {@code equals()}.
      */
-    private <T> void validateGraph(T rootBean, Class<T> rootBeanClass, Object currentBean, PathImpl pathPrefix,
+    private <T> void validateGraph(T rootBean, Class<T> rootBeanClass, Object currentBean,
+                                    List<Class<?>> effectiveGroups, PathImpl pathPrefix,
                                     Set<Object> visited, Set<ConstraintViolation<T>> violations) {
         if (!visited.add(currentBean)) {
             return;
@@ -138,21 +140,27 @@ final class ErasmusValidator implements Validator {
             PathImpl propertyPath = pathPrefix == null ? PathImpl.ofProperty(property.name()) : pathPrefix.append(property.name());
 
             for (ConstraintDescriptorImpl<?> descriptor : property.constraints()) {
+                if (!GroupsSupport.intersects(descriptor.getGroups(), effectiveGroups)) {
+                    continue;
+                }
                 violations.addAll(evaluateConstraint(rootBean, rootBeanClass, currentBean, propertyPath,
                         property.accessor().getType(), value, descriptor));
             }
 
             if (property.cascaded() && value != null) {
-                validateGraph(rootBean, rootBeanClass, value, propertyPath, visited, violations);
+                validateGraph(rootBean, rootBeanClass, value, effectiveGroups, propertyPath, visited, violations);
             }
         }
     }
 
     private <T> void validatePropertyConstraints(T rootBean, Class<T> rootBeanClass, Object leafBean,
                                                   PropertyMetadata property, Object value,
-                                                  Set<ConstraintViolation<T>> violations) {
+                                                  List<Class<?>> effectiveGroups, Set<ConstraintViolation<T>> violations) {
         PathImpl propertyPath = PathImpl.ofProperty(property.name());
         for (ConstraintDescriptorImpl<?> descriptor : property.constraints()) {
+            if (!GroupsSupport.intersects(descriptor.getGroups(), effectiveGroups)) {
+                continue;
+            }
             violations.addAll(evaluateConstraint(rootBean, rootBeanClass, leafBean, propertyPath,
                     property.accessor().getType(), value, descriptor));
         }
@@ -164,8 +172,10 @@ final class ErasmusValidator implements Validator {
      * works with no extra code) — and returns the resulting violations. With
      * {@code @ReportAsSingleViolation}, any failure anywhere in that tree collapses into a
      * single violation carrying this descriptor's own message, instead of one violation per
-     * failing part. {@code leafBean} is the bean the property actually lives on — the root
-     * bean at the top level, the nested bean once cascading has descended.
+     * failing part. Group membership is decided by the caller, before this method ever runs —
+     * a composing constraint's own {@code groups()} is not consulted separately.
+     * {@code leafBean} is the bean the property actually lives on — the root bean at the top
+     * level, the nested bean once cascading has descended.
      */
     private <T, A extends Annotation> List<ConstraintViolationImpl<T>> evaluateConstraint(
             T rootBean, Class<T> rootBeanClass, Object leafBean, PathImpl propertyPath, Class<?> declaredType,
