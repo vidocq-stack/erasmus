@@ -115,17 +115,68 @@ PathImpl append(String propertyName) {
 }
 ```
 
-Second, `ConstraintMetadataBuilder` needed to know a property carries `@Valid` even when it
-has *no constraints of its own* — look for `isCascaded` in the builder, and for the new
-`cascaded` component on `PropertyMetadata` it feeds — a plain `@Valid private Address address;` has zero
-`ConstraintDescriptor`s on the `address` field itself (the `@NotBlank` lives on
-`Address.city`, a different class entirely). Small but easy to get wrong: the builder used
-to skip any field with no constraint annotations at all, so "cascaded but otherwise
-unconstrained" had to become its own reason to keep a property. With that in place, open
-`ErasmusValidator.java` at `validateGraph`: the recursive walk descends into any cascaded
-property whose value is non-null, extending the path one segment at a time — and note that
-`evaluateConstraint` now takes a `leafBean` distinct from `rootBean`, because a violation on
-`person.address.city` has to report the `Address` as its leaf, not the `Person`.
+Second, the metadata had to remember that a property carries `@Valid`. `PropertyMetadata` is a
+record; it gains one more component:
+
+```java
+public record PropertyMetadata(
+        String name, PropertyAccessor accessor, List<ConstraintDescriptorImpl<?>> constraints, boolean cascaded) {
+}
+```
+
+and `ConstraintMetadataBuilder` fills it by looking for the annotation on the field (same
+again for getters):
+
+```java
+private static boolean isCascaded(Annotation[] annotations) {
+    for (Annotation annotation : annotations) {
+        if (annotation.annotationType() == Valid.class) {
+            return true;
+        }
+    }
+    return false;
+}
+```
+
+Small but easy to get wrong, and the reason this is more than one added flag: a plain
+`@Valid private Address address;` has *zero* `ConstraintDescriptor`s on the `address` field
+itself — the `@NotBlank` lives on `Address.city`, a different class entirely — and the builder
+used to skip any field with no constraint annotations at all. "Cascaded but otherwise
+unconstrained" had to become its own reason to keep a property. The whole fix is one `&&`:
+
+```java
+List<ConstraintDescriptorImpl<?>> descriptors = constraintDescriptorsOf(field.getAnnotations());
+boolean cascaded = isCascaded(field.getAnnotations());
+if (descriptors.isEmpty() && !cascaded) {
+    continue;
+}
+```
+
+With that in place, the walk itself, `validateGraph` in `ErasmusValidator`: for every property
+of the current bean, build its path (a fresh one at the root, `pathPrefix.append(...)` below
+it), run its constraints, then descend if it is cascaded and non-null:
+
+```java
+for (PropertyMetadata property : metadata.properties()) {
+    Object value = property.accessor().get(currentBean);
+    PathImpl propertyPath = pathPrefix == null ? PathImpl.ofProperty(property.name()) : pathPrefix.append(property.name());
+
+    for (ConstraintDescriptorImpl<?> descriptor : property.constraints()) {
+        // ... group check, then:
+        violations.addAll(evaluateConstraint(rootBean, rootBeanClass, currentBean, propertyPath,
+                property.accessor().getType(), value, descriptor));
+    }
+
+    if (property.cascaded() && value != null) {
+        validateGraph(rootBean, rootBeanClass, value, effectiveGroups, propertyPath, visited, violations);
+    }
+}
+```
+
+Look at the third argument to `evaluateConstraint`: `currentBean`, not `rootBean`. That is the
+new `leafBean` parameter — a violation on `person.address.city` has to report the `Address` as
+`getLeafBean()`, not the `Person`, and before cascading the two had always been the same
+object.
 
 **Proof.** The same test, now green:
 
@@ -223,7 +274,14 @@ private <T> void validateGraph(..., Set<Object> visited, ...) {
 Identity (`IdentityHashMap`), not `equals()` — two unrelated beans that happen to be
 `equals()`-equal must never be confused for the same graph node. Fresh per group sheet, not
 per top-level `validate()` call, so revisiting the same bean under a later, independent
-group is never mistaken for a cycle.
+group is never mistaken for a cycle. The set is created right before the walk starts, in
+`validate()`, and handed down as a parameter — never a field, never static, never a
+`ThreadLocal`:
+
+```java
+Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+validateGraph(object, beanClass, object, sheet, null, visited, sheetViolations);
+```
 
 **Proof.**
 
@@ -258,7 +316,14 @@ right, so the walk wasn't the problem: `NotBlankValidator` was returning `true` 
 design, following the convention this project has carried since M1 — "every built-in
 validator except `@NotNull` treats `null` as trivially valid", rule 3 of `CLAUDE.md`. I changed
 the test to `new Address("")` and moved on, and the first version of this section called the
-test's premise the mistake.
+test's premise the mistake. Here is the line, in `NotBlankValidator.java` — the
+`value == null ||` is that convention made code:
+
+```java
+public boolean isValid(CharSequence value, ConstraintValidatorContext context) {
+    return value == null || !value.toString().strip().isEmpty();
+}
+```
 
 Going to the spec to quote it for this post is what turned that around. The convention is
 real for most constraints — [§8.13 `@Size`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-size): "`null` elements are considered valid" — but not for
@@ -351,8 +416,34 @@ public Set<Class<?>> getGroups() {
 }
 ```
 
-The graph walk then skips any constraint whose declared groups don't intersect the requested
-ones, via a new `GroupsSupport.intersects`, checked once per constraint before it ever runs.
+The requested groups become a list (no groups at all means `Default`), and a constraint is
+kept when any of its declared groups is in that list — `GroupsSupport.intersects`, which is as
+plain as it sounds:
+
+```java
+static boolean intersects(Set<Class<?>> constraintGroups, List<Class<?>> effectiveGroups) {
+    for (Class<?> group : constraintGroups) {
+        if (effectiveGroups.contains(group)) {
+            return true;
+        }
+    }
+    return false;
+}
+```
+
+That check is the "group check, then:" elided from the walk two sections up — one `continue`
+per constraint, before its validator is ever instantiated:
+
+```java
+for (ConstraintDescriptorImpl<?> descriptor : property.constraints()) {
+    if (!GroupsSupport.intersects(descriptor.getGroups(), effectiveGroups)) {
+        continue;
+    }
+    violations.addAll(evaluateConstraint(rootBean, rootBeanClass, currentBean, propertyPath,
+            property.accessor().getType(), value, descriptor));
+}
+```
+
 (Expansion of the requested groups — inheritance — is the next commit.)
 
 **Proof.**
@@ -497,13 +588,35 @@ static List<List<Class<?>>> resolveSheets(Class<?>[] requestedGroups) {
         }
         return List.copyOf(sheets);
     }
-    // ... single collapsed sheet otherwise
+
+    Set<Class<?>> merged = new LinkedHashSet<>();
+    for (Class<?> group : groups) {
+        merged.addAll(expand(group));
+    }
+    return List.of(List.copyOf(merged));
 }
 ```
 
-`validate()` loops over these sheets and returns as soon as one produces a non-empty result —
-with a fresh visited set per sheet, which is the narrowing the cycle-detection section
-promised: revisiting a bean under a later, independent sheet is never mistaken for a cycle.
+The second half is what the previous two sections already relied on — every requested group,
+expanded with its super-interfaces, merged into one flat sheet. The first half is new: a
+sequence becomes one sheet per step, in order. `validate()` then walks the sheets and returns
+at the first one that produces anything — with a fresh visited set per sheet, which is the
+narrowing the cycle-detection section promised: revisiting a bean under a later, independent
+sheet is never mistaken for a cycle.
+
+```java
+for (List<Class<?>> sheet : GroupsSupport.resolveSheets(groups)) {
+    Set<ConstraintViolation<T>> sheetViolations = new LinkedHashSet<>();
+    Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+    validateGraph(object, beanClass, object, sheet, null, visited, sheetViolations);
+    if (!sheetViolations.isEmpty()) {
+        return sheetViolations;
+    }
+}
+return Set.of();
+```
+
+`validateProperty` and `validateValue` get the same loop around their single-property check.
 
 **Proof.** Both directions — stopping at the first failing step, and passing through when
 the first step is clean:
@@ -580,10 +693,18 @@ $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
 [ERROR]   CascadingAndGroupsTest.cascadedProperty_respectsRequestedGroupsDuringTraversal:261 expected: <1> but was: <0>
 ```
 
-**What was built.** Nothing new, mechanically — the graph walk in `validateGraph` already
-threads `effectiveGroups` down through every recursive call, unchanged as it descends. This
-test exists specifically to confirm that threading actually happens rather than resetting to
-`Default` (or nothing) at each level.
+**What was built.** Nothing new, mechanically — the graph walk already threads
+`effectiveGroups` down through every recursive call, unchanged as it descends. It is the
+fourth argument here, passed straight through:
+
+```java
+if (property.cascaded() && value != null) {
+    validateGraph(rootBean, rootBeanClass, value, effectiveGroups, propertyPath, visited, violations);
+}
+```
+
+This test exists specifically to confirm that this stays true — that nothing resets the
+groups to `Default` (or to nothing) one level down.
 
 **Proof.** The same test, green:
 
@@ -619,6 +740,33 @@ them together:
   `evaluateConstraint`/`evaluateOwnValidator`, instead of the two always being the same
   object like they were pre-cascading — a violation on `person.address.city` has to report
   `getLeafBean()` as the `Address` instance, not the root `Person`.
+
+All three are visible in one place, the head of `evaluateConstraint`. Nothing in it knows
+about groups or about the graph; it receives a `leafBean` it did not compute, evaluates the
+descriptor's own validator, then recurses into the composing constraints with the *same*
+`leafBean` and no group check of its own:
+
+```java
+private <T, A extends Annotation> List<ConstraintViolationImpl<T>> evaluateConstraint(
+        T rootBean, Class<T> rootBeanClass, Object leafBean, PathImpl propertyPath, Class<?> declaredType,
+        Object value, ConstraintDescriptorImpl<A> descriptor) {
+
+    List<ConstraintViolationImpl<T>> collected = new ArrayList<>();
+    if (!descriptor.getConstraintValidatorClasses().isEmpty()) {
+        collected.addAll(evaluateOwnValidator(rootBean, rootBeanClass, leafBean, propertyPath, declaredType, value, descriptor));
+    }
+    for (ConstraintDescriptor<?> composing : descriptor.getComposingConstraints()) {
+        @SuppressWarnings("unchecked")
+        ConstraintDescriptorImpl<Annotation> composingImpl = (ConstraintDescriptorImpl<Annotation>) composing;
+        collected.addAll(evaluateConstraint(rootBean, rootBeanClass, leafBean, propertyPath, declaredType, value, composingImpl));
+    }
+    // ... collapse under @ReportAsSingleViolation, or return collected
+}
+```
+
+The group check you saw in the groups section sits in the *caller*, one line above the call
+to this method — so a composed constraint is filtered exactly once, by its own `groups()`,
+and its composing constraints are never filtered again.
 
 Only the first of those three is the spec's decision — [Jakarta Bean Validation 3.1, §3.3 *Constraint composition*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintsdefinitionimplementation-constraintcomposition):
 
