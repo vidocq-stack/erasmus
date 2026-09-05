@@ -21,7 +21,9 @@ commit**, titled the same way, so `git log --oneline` on this milestone's branch
 this post's table of contents and the diff of a commit can sit next to its section. Two
 exceptions, both deliberate and both explained where they happen — cascading and cycle
 detection share one commit, and the last section has no commit of its own. Every section
-opens with the files worth having open alongside it.
+opens with the files worth having open alongside it — and quotes the sentence of the spec it
+implements, [Jakarta Bean Validation 3.1](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1), with its section number. Where the spec has
+nothing to say about a point, the section says that too.
 
 ## What "cascaded validation" even means
 
@@ -33,7 +35,7 @@ holding an `Address`, which might itself hold a `Country`: cascaded validation i
 one `validate(person)` call reach all the way down that chain and catch a problem anywhere
 in it, rather than only ever seeing `Person`'s own directly-declared constraints. `@Valid` is
 the annotation that turns cascading on for a given property — see below for exactly what
-that looks like.
+that looks like, in the spec's own words ([Jakarta Bean Validation 3.1, §5.1.3 *Graph validation*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-requirements-graphvalidation)).
 
 ## Cascading via `@Valid`
 
@@ -60,6 +62,18 @@ The behavior wanted: `validator.validate(person)` should reach into `address` an
 `Address`'s own constraints too, reporting *where* in the graph it failed —
 `"address.city"`, not just `"city"` or `"address"` — so the caller never has to separately
 dig into `getRootBean()`/`getLeafBean()` to figure out which nested object was the problem.
+
+None of that is our invention — it is the spec's definition of the feature, [Jakarta Bean Validation 3.1, §5.1.3 *Graph validation*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-requirements-graphvalidation):
+
+> Consider the situation where bean X contains a field of type Y. By annotating field Y with
+> the `@Valid` annotation, the Validator will validate Y (and its properties) when X is
+> validated.
+
+The same section then requires it for "Collection-valued, array-valued and generally
+`Iterable` fields and properties" ("This causes the contents of the iterator to be
+validated"). The spec draws no line between a single reference and a collection; this
+milestone does, and defers the collection half to M4 — a narrowing worth seeing against the
+text, not just against `ROADMAP.md`.
 
 Before any of this existed, the test written for exactly that behavior was red:
 
@@ -123,8 +137,15 @@ void withoutValidAnnotation_nestedBeanIsNotChecked() {
 each other, or a `Node` referencing itself directly. Plain recursive descent through `@Valid`
 links has no reason to stop on its own once it hits a cycle; cycle detection has to land in
 the *same* change as cascading, not as an afterthought, or the very first circular fixture
-anyone writes recurses forever instead of returning. The test for it, written before either
-mechanism existed:
+anyone writes recurses forever instead of returning. The spec makes the guard mandatory and
+says what "already visited" means, [Jakarta Bean Validation 3.1, §5.7.1 *Object graph validation*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-validationroutine-graphvalidation):
+
+> To prevent infinite loops, the Jakarta Validation implementation must ignore the cascading
+> operation if the associated object instance has already been validated in the current
+> navigation path (starting from the root object).
+
+Two words in there matter below: *instance* (identity, not `equals()`) and *navigation path*.
+The test for it, written before either mechanism existed:
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
@@ -165,26 +186,44 @@ finds it already visited, and stops. Two violations (`a`'s own and `b`'s, reache
 `next.name`), not an infinite one. The self-referencing case (`self.next = self`) is the
 same mechanism with the cycle one hop shorter.
 
-## A gotcha, found by testing: `@NotBlank` and `null` aren't the bug they look like
+One honest gap against the spec text, though. §5.7.1 scopes the rule to the *current
+navigation path* and adds that "the complete validated object graph can" contain the same
+instance more than once — meaning an `Address` shared by `@Valid home` and `@Valid work`
+should be reported twice, once per path. Our visited set lives for the whole call, so it is
+reported once, under the first path. Terminates the same, differs on that edge; logged as
+`E-002` in [`BUG.md`](../../BUG.md), a small fix kept out of this branch so the commits stay
+readable.
 
-*No commit of its own — the fix is inside the first commit's [`CascadingAndGroupsTest.java`](../../erasmus-core/src/test/java/io/vidocq/erasmus/core/internal/CascadingAndGroupsTest.java), the two-line comment
-above `new Address("")`. The story is the point.*
+## A gotcha, found by quoting the spec: `@NotBlank` and `null` — the test was right
 
-Worth a detour, since it's exactly the kind of thing "goal, then proof" can paper over if
-the first attempt at the proof is itself wrong. First draft of the cascading test above used
-`new Address(null)` expecting the nested `@NotBlank city` to fire. It didn't — zero
-violations instead of one, which looked identical to the real red state shown above. Spent a
-few minutes suspecting the cascading recursion itself: added a throwaway test dumping
-`ConstraintMetadataBuilder`'s output directly, confirmed the metadata was exactly right
-(`address` cascaded with zero own constraints, `city` non-cascaded with one `@NotBlank`
-descriptor) — so the walk itself wasn't the problem.
+*No commit of its own — the fix sits inside the first commit's [`CascadingAndGroupsTest.java`](../../erasmus-core/src/test/java/io/vidocq/erasmus/core/internal/CascadingAndGroupsTest.java), the two-line comment
+above `new Address("")`. What it exposed is `E-001` in [`BUG.md`](../../BUG.md), fixed separately.*
 
-The actual answer was the null-safety convention this project has followed since M1:
-`@NotBlank`, like every built-in validator except `@NotNull`, must treat `null` as trivially
-valid — that's what lets `@NotNull @NotBlank` compose cleanly on the same property instead of
-both firing on a `null` value. The test was passing `null` and expecting a *blank-string*
-failure mode. Fixed the test (`new Address("")` instead of `new Address(null)`), not the
-validator — the validator was already correct, the test's premise wasn't.
+First draft of the cascading test used `new Address(null)`, expecting the nested `@NotBlank
+city` to fire. It didn't — zero violations, indistinguishable from the real red state above.
+A throwaway test dumping `ConstraintMetadataBuilder`'s output confirmed the metadata was
+right, so the walk wasn't the problem: `NotBlankValidator` was returning `true` for `null`, by
+design, following the convention this project has carried since M1 — "every built-in
+validator except `@NotNull` treats `null` as trivially valid", rule 3 of `CLAUDE.md`. I changed
+the test to `new Address("")` and moved on, and the first version of this section called the
+test's premise the mistake.
+
+Going to the spec to quote it for this post is what turned that around. The convention is
+real for most constraints — [§8.13 `@Size`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-size): "`null` elements are considered valid" — but not for
+these two:
+
+> [§8.21 `@NotBlank`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notblank): The annotated element must not be `null` and must contain at least one
+> non-whitespace character.
+>
+> [§8.20 `@NotEmpty`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notempty): The annotated element must not be `null` nor empty.
+
+So the original test was right and the validator is wrong: a `null` city under `@NotBlank`
+*is* a violation, and so is a `null` list under `@NotEmpty`. Erasmus's `NotBlankValidator` and
+all four `NotEmptyValidatorFor*` return `true` for `null`, with unit tests pinning that down
+since M1 — a conformance bug the TCK would have caught at M8, caught earlier only because a
+making-of section insisted on quoting its source. Logged as `E-001`; fixing it (the
+validators, their tests, and `CLAUDE.md` rule 3) is its own change, not smuggled into M3. The
+cascading test keeps `new Address("")`, a violation under both readings.
 
 ## Groups: only run the constraints that were actually asked for
 
@@ -194,7 +233,13 @@ open: [`ConstraintDescriptorImpl.java`](../../erasmus-core/src/main/java/io/vido
 
 **Goal.** `validate(bean, SomeGroup.class)` should only evaluate constraints declared under
 `SomeGroup` (or under it via inheritance) — not every constraint on the bean regardless of
-what was requested. Two tests pin this down: one confirming the *default* call still only
+what was requested. Both halves are spelled out — [Jakarta Bean Validation 3.1, §5.4 *Group and group sequence*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-groupsequence):
+
+> Each constraint declaration defines the list of groups it belongs to. If no group is
+> explicitly declared, a constraint belongs to the `Default` group.
+
+and, for the call site, [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups): "If no group is passed, the `Default` group is assumed."
+Two tests pin this down: one confirming the *default* call still only
 sees `Default`-group constraints, one confirming an *explicit* group call only sees that
 group's. Both were red before groups existed at all:
 
@@ -236,8 +281,14 @@ $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest#defaultGrou
 
 *Commit `feat(m3): group inheritance`. File to open: [`GroupsSupport.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/GroupsSupport.java), `expand` and `collect`.*
 
-Group inheritance — a group interface extending others should pull in the supers — is a
-small recursive walk over `Class.getInterfaces()` in the new `GroupsSupport`:
+[Jakarta Bean Validation 3.1, §5.4.1 *Group inheritance*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-groupsequence-groupinheritance) defines it in one sentence:
+
+> For a given interface Z, constraints marked as belonging to the group Z (i.e. where the
+> annotation element `groups` contains the interface Z) or any of the super interfaces of Z
+> (inherited groups) are considered part of the group Z.
+
+Which is a recursive walk over `Class.getInterfaces()` in the new `GroupsSupport`, and
+nothing more:
 
 ```java
 private static void collect(Class<?> group, Set<Class<?>> into) {
@@ -279,8 +330,14 @@ void groupInheritance_extendedGroupPullsInBaseGroupConstraints() {
 
 **Goal.** `validate(bean, OrderedSequence.class)`, where `OrderedSequence` is
 `@GroupSequence({StepOne.class, StepTwo.class})`, should evaluate `StepOne`'s constraints
-first and, if any fail, never even look at `StepTwo`'s. Before sequences existed, the test
-for the "stops at the first failure" direction was red:
+first and, if any fail, never even look at `StepTwo`'s — [Jakarta Bean Validation 3.1, §5.4.2 *Group sequence*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-groupsequence-groupsequence):
+
+> Each group in a group sequence must be processed sequentially in the order defined by
+> `@GroupSequence.value` when the group defined as a sequence is requested. [...] if one of
+> the groups processed in the sequence generates one or more constraint violations, the groups
+> following in the sequence must not be processed.
+
+Before sequences existed, the test for the "stops at the first failure" direction was red:
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
@@ -328,11 +385,14 @@ with `StepOne` passing and only `StepTwo` failing, "run everything unconditional
 "stops at the first *failing* step" direction (both steps would fail if evaluated) could
 actually tell the two implementations apart, which is why that's the one quoted as red above.
 
-**Deliberate scope gap, documented rather than silently wrong**: this only handles a single
-requested group that happens to be a sequence. Mixing a sequence with other, unrelated
-groups in the same call collapses everything into one unordered sheet instead of correctly
-interleaving the short-circuit — rare in practice (most real calls pass either `Default` or
-one custom sequence), but a real gap, not an oversight nobody noticed.
+**Deliberate scope gap, documented rather than silently wrong** — and quoting the spec
+actually shrinks it. Several *plain* groups in one call collapsing into one unordered sheet is
+not a gap at all; it is what [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups) prescribes: "When more than one group is evaluated
+and passed to the various validate methods, order is not constrained. It is equivalent to the
+validation of a group G inheriting all groups". The gap is narrower: when one of several
+requested groups is *itself* a sequence, §5.4.2 says "each composed group must respect the
+sequence order as well", and we flatten it instead. Rare in practice (most real calls pass
+either `Default` or one custom sequence), but a real divergence, not an oversight.
 
 ## Putting cascading and groups together
 
@@ -341,8 +401,11 @@ one custom sequence), but a real gap, not an oversight nobody noticed.
 
 **Goal.** The two mechanisms above were built and tested mostly independently — the real
 question is whether they compose: does a cascaded property's own constraint still respect
-the group that was requested at the *root* `validate()` call? Before groups existed, this
-was red too:
+the group that was requested at the *root* `validate()` call? The spec answers in one line,
+[Jakarta Bean Validation 3.1, §5.7.1 *Object graph validation*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-validationroutine-graphvalidation): "`@Valid` is an orthogonal concept to the notion of group. If two groups are in
+sequence, the first group must pass for all associated objects before the second group is
+evaluated." Orthogonal, so the requested groups travel down the graph unchanged. Before groups
+existed, this was red too:
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
@@ -396,6 +459,17 @@ them together:
   object like they were pre-cascading — a violation on `person.address.city` has to report
   `getLeafBean()` as the `Address` instance, not the root `Person`.
 
+Only the first of those three is the spec's decision — [Jakarta Bean Validation 3.1, §3.3 *Constraint composition*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintsdefinitionimplementation-constraintcomposition):
+
+> Groups from the main constraint annotation are inherited by the composing annotations. Any
+> groups definition on a composing annotation is ignored.
+
+The other two are ours. The spec constrains the *result* — what a `ConstraintViolation`
+reports as its leaf bean, its path — and says nothing about where an implementation keeps
+its graph walk or how it threads the leaf bean through its evaluation code. Worth being
+clear about which is which: the first bullet is conformance, the second and third are
+design.
+
 **Proof.** Not a single new test — the existing ones, run *together*, sharing the same code
 path instead of just independently:
 
@@ -421,6 +495,10 @@ right one, not just a plausible-sounding one.
   cascading and groups in the same evaluation path — proven by running both test suites
   together, not just each in isolation.
 - 87 tests total, all green. Full reactor build (`./mvnw -ntp clean install`) succeeds.
+- Two conformance bugs found by quoting the spec for this post, both logged in `BUG.md` and
+  neither fixed here: `E-001`, `@NotBlank`/`@NotEmpty` accept `null` (they must not, §8.20 and
+  §8.21 — an M1 convention that was wrong for these two); `E-002`, cycle detection scoped to
+  the whole call instead of the current navigation path (§5.7.1).
 - Deliberate scope gaps, documented in `ROADMAP.md`: cascading into collection/array/map
   elements is M4's job (the `ValueExtractor` SPI milestone exists precisely to solve
   container traversal uniformly); mixing a `@GroupSequence` with other unrelated groups in
