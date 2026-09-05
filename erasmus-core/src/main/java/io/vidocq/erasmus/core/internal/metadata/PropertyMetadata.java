@@ -22,8 +22,11 @@ package io.vidocq.erasmus.core.internal.metadata;
 import java.util.List;
 
 /**
- * A single constrained property: its name, how to read its value, and the
- * constraints declared on it (field- or getter-level — see {@link ConstraintMetadataBuilder}).
+ * A single constrained-or-cascaded property: its name, how to read its value, the
+ * constraints declared on it, and whether it carries {@code @Valid} (field- or
+ * getter-level — see {@link ConstraintMetadataBuilder}). A property can be both
+ * constrained and cascaded at once (e.g. {@code @Valid @NotNull private Address address;}).
  */
-public record PropertyMetadata(String name, PropertyAccessor accessor, List<ConstraintDescriptorImpl<?>> constraints) {
+public record PropertyMetadata(
+        String name, PropertyAccessor accessor, List<ConstraintDescriptorImpl<?>> constraints, boolean cascaded) {
 }
