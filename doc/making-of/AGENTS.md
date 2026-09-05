@@ -140,3 +140,5 @@ belongs once, in the series intro in the root `MAKING-OF.md`, not repeated per p
 - Don't repeat a full milestone recap as its own top-level section with a heading — a short
   paragraph under the intro is enough (see "Opening" above).
 - Don't add per-post meta-commentary about why the series exists — said once, in the index.
+- Don't slip into the passive for your own decisions ("then came the request to…", "it was
+  decided…") — first person, always: "then I asked Claude to…". The journal has an author.
