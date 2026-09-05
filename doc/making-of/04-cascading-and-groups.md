@@ -75,8 +75,8 @@ contents of the iterator to be validated"). For the spec, a single reference and
 are one and the same requirement, stated in one breath. This milestone implements only the
 single reference; validating the elements of a collection, array or `Map` waits for M4, where
 the `ValueExtractor` SPI handles every container type at once. That split is our decision,
-not the spec's — which is exactly why the quote sits here, so the reader can see the whole
-requirement and not just the half we shipped.
+not the spec's — which is exactly why the quote sits here: read the whole requirement, not
+just the half we shipped.
 
 Before any of this existed, the test written for exactly that behavior was red:
 

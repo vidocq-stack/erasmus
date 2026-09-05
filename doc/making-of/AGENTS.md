@@ -140,5 +140,9 @@ belongs once, in the series intro in the root `MAKING-OF.md`, not repeated per p
 - Don't repeat a full milestone recap as its own top-level section with a heading — a short
   paragraph under the intro is enough (see "Opening" above).
 - Don't add per-post meta-commentary about why the series exists — said once, in the index.
+- Don't write about "the reader" — write *to* them. The register is a colleague sitting next
+  to you looking at the same screen: "look at that last line", "read the whole requirement",
+  never "so the reader can see". Second person, or an imperative; the third person turns a
+  conversation into a report.
 - Don't slip into the passive for your own decisions ("then came the request to…", "it was
   decided…") — first person, always: "then I asked Claude to…". The journal has an author.
