@@ -181,4 +181,43 @@ class CascadingAndGroupsTest {
         assertEquals(Set.of("password"), violatedPaths(violations),
                 "Strict requested: @Size(groups = Strict) on password must fire, @NotBlank on username must not");
     }
+
+    // --- Group inheritance ---
+
+    private interface BaseGroup {
+    }
+
+    private interface ExtendedGroup extends BaseGroup {
+    }
+
+    private interface UnrelatedGroup {
+    }
+
+    /**
+     * Two constraints, both violated, in two groups with no relation to each other:
+     * {@code sku} under {@code BaseGroup}, which {@code ExtendedGroup} extends, and
+     * {@code ean} under {@code UnrelatedGroup}, which it does not. Requesting
+     * {@code ExtendedGroup} therefore has to pull in the first and leave the second alone —
+     * expanding a group means walking up its super-interfaces, not taking everything in sight.
+     */
+    private static final class Item {
+        @NotNull(groups = BaseGroup.class)
+        private String sku;
+
+        @NotNull(groups = UnrelatedGroup.class)
+        private String ean;
+
+        Item(String sku, String ean) {
+            this.sku = sku;
+            this.ean = ean;
+        }
+    }
+
+    @Test
+    void groupInheritance_extendedGroupPullsInBaseGroupConstraints() {
+        Set<ConstraintViolation<Item>> violations = validator.validate(new Item(null, null), ExtendedGroup.class);
+
+        assertEquals(Set.of("sku"), violatedPaths(violations),
+                "ExtendedGroup extends BaseGroup, so sku must fire; UnrelatedGroup is unrelated, so ean must not");
+    }
 }
