@@ -19,6 +19,7 @@
  */
 package io.vidocq.erasmus.core.internal;
 
+import jakarta.validation.GroupSequence;
 import jakarta.validation.Valid;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -34,7 +35,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** ROADMAP M3: {@code @Valid} cascading, cycle detection, and groups. */
+/** ROADMAP M3: {@code @Valid} cascading, cycle detection, groups, and {@code @GroupSequence}. */
 class CascadingAndGroupsTest {
 
     private Validator validator;
@@ -189,5 +190,46 @@ class CascadingAndGroupsTest {
 
         assertEquals(1, violations.size());
         assertEquals("sku", violations.iterator().next().getPropertyPath().toString());
+    }
+
+    // --- @GroupSequence short-circuiting ---
+
+    private interface StepOne {
+    }
+
+    private interface StepTwo {
+    }
+
+    @GroupSequence({StepOne.class, StepTwo.class})
+    private interface OrderedSequence {
+    }
+
+    private static final class Form {
+        @NotBlank(groups = StepOne.class)
+        private String field1;
+
+        @NotBlank(groups = StepTwo.class)
+        private String field2;
+
+        Form(String field1, String field2) {
+            this.field1 = field1;
+            this.field2 = field2;
+        }
+    }
+
+    @Test
+    void groupSequence_stopsAtFirstFailingGroup() {
+        Set<ConstraintViolation<Form>> violations = validator.validate(new Form("", ""), OrderedSequence.class);
+
+        assertEquals(1, violations.size());
+        assertEquals("field1", violations.iterator().next().getPropertyPath().toString());
+    }
+
+    @Test
+    void groupSequence_proceedsToSecondGroupWhenFirstPasses() {
+        Set<ConstraintViolation<Form>> violations = validator.validate(new Form("ok", ""), OrderedSequence.class);
+
+        assertEquals(1, violations.size());
+        assertEquals("field2", violations.iterator().next().getPropertyPath().toString());
     }
 }
