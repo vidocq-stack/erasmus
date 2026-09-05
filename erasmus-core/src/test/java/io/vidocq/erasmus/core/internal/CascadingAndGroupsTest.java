@@ -165,4 +165,29 @@ class CascadingAndGroupsTest {
         assertEquals(1, violations.size());
         assertEquals("password", violations.iterator().next().getPropertyPath().toString());
     }
+
+    // --- Group inheritance ---
+
+    private interface BaseGroup {
+    }
+
+    private interface ExtendedGroup extends BaseGroup {
+    }
+
+    private static final class Item {
+        @NotNull(groups = BaseGroup.class)
+        private String sku;
+
+        Item(String sku) {
+            this.sku = sku;
+        }
+    }
+
+    @Test
+    void groupInheritance_extendedGroupPullsInBaseGroupConstraints() {
+        Set<ConstraintViolation<Item>> violations = validator.validate(new Item(null), ExtendedGroup.class);
+
+        assertEquals(1, violations.size());
+        assertEquals("sku", violations.iterator().next().getPropertyPath().toString());
+    }
 }

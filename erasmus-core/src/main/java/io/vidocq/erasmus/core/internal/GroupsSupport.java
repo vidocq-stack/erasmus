@@ -21,25 +21,35 @@ package io.vidocq.erasmus.core.internal;
 
 import jakarta.validation.groups.Default;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 /**
  * Group resolution for {@code validate(bean, groups...)} (ROADMAP M3): which groups a call
- * asked for, and whether a given constraint belongs to any of them. Group inheritance and
- * {@code @GroupSequence} follow.
+ * asked for — including group inheritance, a group interface extending others pulls in the
+ * supers — and whether a given constraint belongs to any of them. {@code @GroupSequence}
+ * follows.
  */
 final class GroupsSupport {
 
     private GroupsSupport() {
     }
 
-    /** The groups a call asked for — no groups at all means {@link Default}. */
+    /**
+     * The groups a call asked for, each expanded with the group interfaces it extends — no
+     * groups at all means {@link Default}.
+     */
     static List<Class<?>> resolve(Class<?>[] requestedGroups) {
-        return requestedGroups.length == 0 ? List.of(Default.class) : List.of(requestedGroups);
+        Class<?>[] groups = requestedGroups.length == 0 ? new Class<?>[] {Default.class} : requestedGroups;
+        Set<Class<?>> merged = new LinkedHashSet<>();
+        for (Class<?> group : groups) {
+            merged.addAll(expand(group));
+        }
+        return List.copyOf(merged);
     }
 
-    /** True if any of a constraint's declared groups appears in the effective groups. */
+    /** True if any of a constraint's declared groups appears in the effective (expanded) groups. */
     static boolean intersects(Set<Class<?>> constraintGroups, List<Class<?>> effectiveGroups) {
         for (Class<?> group : constraintGroups) {
             if (effectiveGroups.contains(group)) {
@@ -47,5 +57,21 @@ final class GroupsSupport {
             }
         }
         return false;
+    }
+
+    /** A group plus every group interface it extends, recursively. */
+    private static Set<Class<?>> expand(Class<?> group) {
+        Set<Class<?>> expanded = new LinkedHashSet<>();
+        collect(group, expanded);
+        return expanded;
+    }
+
+    private static void collect(Class<?> group, Set<Class<?>> into) {
+        if (!into.add(group)) {
+            return;
+        }
+        for (Class<?> superGroup : group.getInterfaces()) {
+            collect(superGroup, into);
+        }
     }
 }
