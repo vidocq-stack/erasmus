@@ -155,21 +155,22 @@ to `assertTrueConstraint()`/`assertFalseConstraint()` to sidestep it.
 
 ---
 
-### M3 — Graph validation (`@Valid`) + groups & group sequences
+### M3 — Graph validation (`@Valid`) + groups & group sequences ✅ (narrowed scope)
 
 **Scope spec:** cascaded validation, groups, group sequences.
 
-| Task | Notes |
-|---|---|
-| `@Valid` cascading | Recursive descent into cascaded properties/elements; `Path` accumulates node segments correctly. |
-| Cycle detection | Visited-(bean identity, group) set per top-level `validate()` call — never a static/thread-local cache. |
-| `Default` group + explicit groups | `validate(bean, Group1.class, Group2.class)`. |
-| `@GroupSequence` | Short-circuit evaluation: stop at the first group in the sequence that produces a violation. |
-| Group inheritance | A group interface extending other group interfaces expands correctly. |
-| Integration tests | Circular graphs (must terminate), multi-group sequences, mixed cascading + groups. |
+| Task | Notes | Status |
+|---|---|---|
+| `@Valid` cascading | Recursive descent into a single nested bean reference (`@Valid private Address address;`), `PathImpl` extended to multi-segment (`address.city`) via a new `.append(name)`. **Cascading into collection/array/map elements is explicitly deferred to M4** — that's exactly the container-traversal problem the `ValueExtractor` SPI milestone exists to solve uniformly, so doing it twice (once ad hoc here, once properly in M4) would be wasted work. | ✅ (single-bean only) |
+| Cycle detection | A fresh `Set<Object>` (`IdentityHashMap`-backed, bean *identity* not `equals()`) per group *sheet* (see below) — naturally satisfies "(bean identity, group)" scoping without needing a composite key, since each sheet already gets its own fresh visited-set in the per-sheet loop. | ✅ |
+| `Default` group + explicit groups | `validate(bean, Group1.class, Group2.class)` — a `ConstraintDescriptorImpl` now actually reads the constraint annotation's `groups()` attribute (was hardcoded to `Set.of(Default.class)` since M1) instead of ignoring it. | ✅ |
+| Group inheritance | `GroupsSupport.expand(group)` walks `Class.getInterfaces()` recursively — a group interface extending others pulls in the supers automatically. | ✅ |
+| `@GroupSequence` | Short-circuits correctly **for the common case**: a single requested group that is itself `@GroupSequence`-annotated expands into an ordered list of "sheets," evaluated one at a time, stopping at the first sheet with any violation. **Deliberate scope gap**: mixing a sequence group with other, unrelated groups in the same `validate(...)` call collapses everything into one unordered sheet instead of correctly interleaving the sequence's short-circuit with the other groups — rare in practice (most real calls pass either `Default` or a single custom sequence), documented rather than silently wrong. | ✅ (narrowed scope) |
+| Integration tests | `CascadingAndGroupsTest`: nested cascading with dotted paths, null/absent-`@Valid` non-cascading, a circular two-node graph, a self-referencing node, `Default` vs. explicit group, group inheritance, both directions of `@GroupSequence` short-circuiting (fails at first group / passes through to the second), and a mixed cascading+groups case (a cascaded property whose own constraint is group-gated). 11 tests. | ✅ |
 
-**Deliverable:** cascaded validation across arbitrary (including circular) object graphs,
-correct group-sequence short-circuiting.
+**Deliverable:** cascaded validation across arbitrary (including circular) object graphs for
+single bean references, correct group-sequence short-circuiting for the single-sequence-group
+case. 87 tests total (up from 76), all green.
 
 ---
 
