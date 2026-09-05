@@ -76,6 +76,24 @@ This is the difference between "here's what the code looks like" and "here's pro
 actually works," and it's the reason this series exists instead of just pointing people at
 `ROADMAP.md`.
 
+## One commit per section, and the files to open
+
+Shape the branch so that it reads like the post: **one commit per section, titled the same
+way**, so `git log --oneline` is the table of contents and a section can be read next to
+`git show` of its commit. Build the commits incrementally and keep every intermediate state
+green for the tests it contains — the point is that each diff is small enough to read in
+one sitting, alongside the section that explains it. Where two sections genuinely have to
+land together (cascading and its cycle detection, say), or a section has no commit of its
+own (a design discussion, a test-only check), say so in the section's opening line rather
+than forcing a split or a fake commit.
+
+Every section then **opens with the files worth having open** — an italic line naming the
+commit and linking the two to five files a reader should look at, with relative links from
+`doc/making-of/` (`../../erasmus-core/src/main/java/...`). In the prose, point at the
+specific method or lines ("open `ErasmusValidator.java` at `validateGraph`, the first three
+lines") rather than only naming the file: the reader has the code on the other half of the
+screen, so tell them where to look.
+
 ## Closing
 
 End the post with its own **`## Where it stands now`** and **`## What's next`**, reflecting
