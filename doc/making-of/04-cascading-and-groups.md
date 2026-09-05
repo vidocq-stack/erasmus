@@ -517,10 +517,10 @@ This series has a rule against talking about itself, and this section breaks it 
 purpose, because a rule of the series changed the outcome of the milestone.
 
 The spec quotes above were not in the first version of this post. The seven commits were
-done, the post was written, the proofs were green. Then came the request to quote, in every
-section, the sentence of Bean Validation 3.1 the section implements — verbatim, with its
-section number, fetched from the actual text rather than recalled. To do that, Claude pulled
-the 3.1 HTML and read the relevant sections side by side with the code. Three things came
+done, the post was written, the proofs were green. Then I asked Claude for one more thing:
+quote, in every section, the sentence of Bean Validation 3.1 the section implements —
+verbatim, with its section number, fetched from the actual text rather than recalled. To do
+that, Claude pulled the 3.1 HTML and read the relevant sections side by side with the code. Three things came
 out of that reading that nothing before it had caught:
 
 - **`@NotBlank` and `@NotEmpty` were wrong since M1** (`E-001`). §8.21 and §8.20 say "must
@@ -546,4 +546,4 @@ itself twice in one post.
 
 It does not replace the TCK — it only finds what happens to sit next to the sentences you
 went looking for. But it is the first time in this series that a rule about *writing* the
-journal fed back into the *code*, and that seemed worth recording once.
+journal fed back into the *code*, and I wanted that recorded once.
