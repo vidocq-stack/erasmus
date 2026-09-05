@@ -59,6 +59,30 @@ duplicate ledger. Two rules that follow from that:
   `ROADMAP.md` first, then quote the updated text — the post and the roadmap must never
   diverge.
 
+## The spec quote
+
+`ROADMAP.md` is our reformulation; the spec is the source. So each section's **Goal** also
+quotes the sentence of the originating spec it implements — for Erasmus, Jakarta Bean
+Validation **3.1** (say the version: section numbers move between versions) — as a blockquote
+with section number, title and a link to the anchor in the spec HTML
+(`https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#<anchor>`).
+One or two normative sentences per point, verbatim, fetched from the actual text — never
+quoted from memory: a misremembered section number or paraphrase presented as a quote is
+worse than no quote.
+
+That closes the chain spec → ROADMAP → commit → test, and it earns its keep in three places:
+
+- **Narrowed scope**: when the spec asks for more than the milestone did (cascading into
+  collections, §5.1.3), quote the wider text so the reader sees the gap against the source,
+  not just against our own notes.
+- **Wrong conventions**: quoting is how `E-001` was found — the spec said `@NotBlank` must
+  reject `null`, our convention said otherwise. When the text contradicts the code, the
+  section says so plainly and points at the `BUG.md` entry; it does not soften the finding.
+- **"Not in the spec"**: don't quote everywhere. When a point is a design decision the spec
+  leaves open (where the graph walk lives, how the leaf bean is threaded), say explicitly
+  that the spec constrains the result and not the shape — that sentence is as useful as a
+  quote, and pretending a citation exists is not an option.
+
 ## Proof, not just prose
 
 For each real design decision or mechanism described in the post, pick **one or two** actual
