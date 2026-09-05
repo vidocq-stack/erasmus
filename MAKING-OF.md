@@ -17,3 +17,6 @@ each post stays a readable size — new posts get added as new milestones land.*
 3. [Migrating the whole workspace from Codeberg to Codefloe](doc/making-of/03-migrating-to-codefloe.md) —
    an infrastructure story, not a milestone: SSH keys, `mani.yaml`, and repointing all 20
    Vidocq repositories to the new host.
+4. [M3: cascaded validation, groups, and `@GroupSequence`](doc/making-of/04-cascading-and-groups.md) —
+   `@Valid` cascading with cycle detection, group filtering and inheritance, group-sequence
+   short-circuiting, and making all of it compose with M2's composed constraints.
