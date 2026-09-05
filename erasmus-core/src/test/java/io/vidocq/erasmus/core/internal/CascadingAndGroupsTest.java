@@ -232,4 +232,35 @@ class CascadingAndGroupsTest {
         assertEquals(1, violations.size());
         assertEquals("field2", violations.iterator().next().getPropertyPath().toString());
     }
+
+    // --- Mixed cascading + groups ---
+
+    private static final class StrictAddress {
+        @NotBlank(groups = Strict.class)
+        private String city;
+
+        StrictAddress(String city) {
+            this.city = city;
+        }
+    }
+
+    private static final class PersonWithStrictAddress {
+        @Valid
+        private StrictAddress address;
+
+        PersonWithStrictAddress(StrictAddress address) {
+            this.address = address;
+        }
+    }
+
+    @Test
+    void cascadedProperty_respectsRequestedGroupsDuringTraversal() {
+        PersonWithStrictAddress person = new PersonWithStrictAddress(new StrictAddress(""));
+
+        assertTrue(validator.validate(person).isEmpty(), "Strict-only constraint must not fire under Default");
+
+        Set<ConstraintViolation<PersonWithStrictAddress>> violations = validator.validate(person, Strict.class);
+        assertEquals(1, violations.size());
+        assertEquals("address.city", violations.iterator().next().getPropertyPath().toString());
+    }
 }
