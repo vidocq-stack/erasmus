@@ -91,6 +91,11 @@ Concretely, for each example:
 
 - Quote the real code from the actual source file (constraint/validator/annotation and the
   test method), copy-pasted, not paraphrased or simplified into pseudo-code.
+- Show the code before the command, every time — the fixture (the class and annotations the
+  point is about) and the test method itself, trimmed, with a sentence on what the test asks
+  for. A bare `expected: <1> but was: <0>` means nothing to someone who has not seen the
+  assertion that produced it. This applies to the red run in the goal as much as to the
+  green run in the proof.
 - Show the actual command used to run just that test (`cd erasmus-core && ../mvnw -ntp test
   -Dtest=SomeTest`) and the **real** Surefire output from actually running it — never a
   fabricated "Tests run: N" line. Run the command again if the post is being edited later
