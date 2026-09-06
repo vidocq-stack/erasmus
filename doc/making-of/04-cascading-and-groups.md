@@ -258,8 +258,10 @@ $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
 Only the root's own violation came back — not a hang, since cascading itself didn't exist
 yet to even attempt the recursion, but proof the two-node case wasn't handled.
 
-**What was built.** A fresh `Collections.newSetFromMap(new IdentityHashMap<>())`, checked at
-the top of every recursive call. In this commit it is one set per `validate()` call; the
+**What was built.** A `visited` set — the bean instances the walk has already entered, added
+on the way in. Before looking at a bean, `validateGraph` tries to add it to that set; if it
+was already there, this path has looped back on itself, and the walk stops right there
+instead of descending again. In this commit there is one such set per `validate()` call; the
 `@GroupSequence` commit later narrows that to one per group *sheet* (explained there):
 
 ```java
@@ -271,12 +273,11 @@ private <T> void validateGraph(..., Set<Object> visited, ...) {
 }
 ```
 
-Identity (`IdentityHashMap`), not `equals()` — two unrelated beans that happen to be
-`equals()`-equal must never be confused for the same graph node. Fresh per group sheet, not
-per top-level `validate()` call, so revisiting the same bean under a later, independent
-group is never mistaken for a cycle. The set is created right before the walk starts, in
-`validate()`, and handed down as a parameter — never a field, never static, never a
-`ThreadLocal`:
+What kind of set matters: it has to compare by *identity* (`==`), not by `equals()` — two
+unrelated beans that happen to be `equals()`-equal must never be confused for the same graph
+node. Java has no `IdentityHashSet`, so the idiom is a `Set` view over an `IdentityHashMap`.
+It is created right before the walk starts, in `validate()`, and handed down as a parameter —
+never a field, never static, never a `ThreadLocal`:
 
 ```java
 Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
