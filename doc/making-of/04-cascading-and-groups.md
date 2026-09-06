@@ -261,7 +261,7 @@ yet to even attempt the recursion, but proof the two-node case wasn't handled.
 **What was built.** A `visited` set — the bean instances the walk has already entered, added
 on the way in. Before looking at a bean, `validateGraph` tries to add it to that set; if it
 was already there, this path has looped back on itself, and the walk stops right there
-instead of descending again. In this commit there is one such set per `validate()` call; the
+instead of descending again. In this commit, there is one such set per `validate()` call; the
 `@GroupSequence` commit later narrows that to one per group *sheet* (explained there):
 
 ```java
