@@ -73,9 +73,9 @@
         <jakarta.ws.rs.version>4.0.0</jakarta.ws.rs.version>
 
         <!-- Vidocq upstreams (referenced via properties to allow cross-repo PR overrides) -->
-        <vauban.version>0.3.0-SNAPSHOT</vauban.version>
-        <champollion.version>0.3.0-SNAPSHOT</champollion.version>
-        <cassini.version>0.3.0-SNAPSHOT</cassini.version>
+        <vauban.version>0.4.0-SNAPSHOT</vauban.version>
+        <champollion.version>0.4.0-SNAPSHOT</champollion.version>
+        <cassini.version>0.4.0-SNAPSHOT</cassini.version>
 
         <jmh.version>1.37</jmh.version>
     </properties>
