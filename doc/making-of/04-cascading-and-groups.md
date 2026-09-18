@@ -115,6 +115,15 @@ PathImpl append(String propertyName) {
 }
 ```
 
+On `Person`, that is two calls, one per level the walk goes down:
+
+```
+PathImpl.ofProperty("address")  ->  "address"
+        .append("city")         ->  "address.city"
+```
+
+The second string is exactly what the test asserts on.
+
 Second, the metadata had to remember that a property carries `@Valid`. `PropertyMetadata` is a
 record; it gains one more component:
 
@@ -123,6 +132,24 @@ public record PropertyMetadata(
         String name, PropertyAccessor accessor, List<ConstraintDescriptorImpl<?>> constraints, boolean cascaded) {
 }
 ```
+
+Hard to picture in the abstract, so here are the two instances the running example produces —
+one per property, and they are mirror images of each other:
+
+```java
+// Person.address — carries @Valid and nothing else
+new PropertyMetadata("address", <FieldAccessor for Person#address>,
+        List.of(),                              // no constraint of its own
+        true);                                  // cascaded
+
+// Address.city — carries @NotBlank and no @Valid
+new PropertyMetadata("city", <FieldAccessor for Address#city>,
+        List.of(<descriptor for @NotBlank>),    // one constraint
+        false);                                 // not cascaded
+```
+
+`address` is the case that did not exist before M3: an empty `constraints` list, and the
+whole reason to keep the property is that last boolean.
 
 and `ConstraintMetadataBuilder` fills it by looking for the annotation on the field (same
 again for getters):
@@ -138,6 +165,10 @@ private static boolean isCascaded(Annotation[] annotations) {
 }
 ```
 
+Hand it `Person#address`'s annotations — `[@Valid]` — and it returns `true`; hand it
+`Address#city`'s — `[@NotBlank]` — and it returns `false`. That single boolean is the only
+difference between the two records above.
+
 Small but easy to get wrong, and the reason this is more than one added flag: a plain
 `@Valid private Address address;` has *zero* `ConstraintDescriptor`s on the `address` field
 itself — the `@NotBlank` lives on `Address.city`, a different class entirely — and the builder
@@ -151,6 +182,13 @@ if (descriptors.isEmpty() && !cascaded) {
     continue;
 }
 ```
+
+Run it over `Person`: `descriptors` comes back empty (the field carries no constraint) and
+`cascaded` is `true`, so the property survives. With the old condition — just
+`descriptors.isEmpty()` — `address` was dropped from the metadata entirely, so nothing
+downstream ever had a property to descend into. That is the zero-violation red run above, and
+this `&&` is its whole fix. `Address.city` goes through the other way round: one descriptor,
+not cascaded, kept for its constraint.
 
 With that in place, the walk itself, `validateGraph` in `ErasmusValidator`: for every property
 of the current bean, build its path (a fresh one at the root, `pathPrefix.append(...)` below
@@ -171,6 +209,19 @@ for (PropertyMetadata property : metadata.properties()) {
         validateGraph(rootBean, rootBeanClass, value, effectiveGroups, propertyPath, visited, violations);
     }
 }
+```
+
+Follow `validator.validate(person)` through it, with the blank city from the test:
+
+```
+currentBean = person, pathPrefix = null
+  property "address" -> value = the Address, path = "address"
+      constraints: none           -> nothing to evaluate here
+      cascaded, value != null     -> recurse
+    currentBean = the Address, pathPrefix = "address"
+      property "city" -> value = "", path = "address.city"
+          constraint @NotBlank    -> violation, reported on "address.city"
+          not cascaded            -> stop
 ```
 
 Look at the third argument to `evaluateConstraint`: `currentBean`, not `rootBean`. That is the
@@ -273,6 +324,19 @@ private <T> void validateGraph(..., Set<Object> visited, ...) {
 }
 ```
 
+The running example has no cycle yet, but one back-reference is enough to make one — give
+`Address` a `@Valid Person resident` pointing home, and the walk would loop forever without
+this guard:
+
+```
+validate(person)
+  visited = {}                    add person   -> new, walk it
+    descend into "address"
+  visited = {person}              add address  -> new, walk it
+    descend into "address.resident", which is person again
+  visited = {person, address}     add person   -> already there, return
+```
+
 What kind of set matters: it has to compare by *identity* (`==`), not by `equals()` — two
 unrelated beans that happen to be `equals()`-equal must never be confused for the same graph
 node. Java has no `IdentityHashSet`, so the idiom is a `Set` view over an `IdentityHashMap`.
@@ -283,6 +347,11 @@ never a field, never static, never a `ThreadLocal`:
 Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
 validateGraph(object, beanClass, object, sheet, null, visited, sheetViolations);
 ```
+
+Why identity rather than `equals()`, on the running example: a `Person` with two `Address`
+fields holding two *distinct* instances that both have `city = ""` would be one single entry
+in an `equals()`-based set — the second address silently skipped, its violation lost. With
+identity they stay two nodes, and both are validated.
 
 **Proof.**
 
@@ -325,6 +394,10 @@ public boolean isValid(CharSequence value, ConstraintValidatorContext context) {
     return value == null || !value.toString().strip().isEmpty();
 }
 ```
+
+On the two cities the test tried: `new Address(null)` short-circuits on `value == null` and
+returns `true` — valid, no violation, the zero I was staring at. `new Address("")` reaches
+`strip().isEmpty()`, returns `false`, and the violation on `address.city` appears.
 
 Going to the spec to quote it for this post is what turned that around. The convention is
 real for most constraints — [§8.13 `@Size`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-size): "`null` elements are considered valid" — but not for
@@ -417,6 +490,11 @@ public Set<Class<?>> getGroups() {
 }
 ```
 
+On `Address.city`'s plain `@NotBlank`, `groups()` is the empty array the annotation declares
+by default, so this returns `{Default}`. Move that constraint into a group —
+`@NotBlank(groups = Strict.class)`, which is the `StrictAddress` used further down — and it
+returns `{Strict}`.
+
 The requested groups become a list (no groups at all means `Default`), and a constraint is
 kept when any of its declared groups is in that list — `GroupsSupport.intersects`, which is as
 plain as it sounds:
@@ -432,6 +510,18 @@ static boolean intersects(Set<Class<?>> constraintGroups, List<Class<?>> effecti
 }
 ```
 
+Both calls the tests make, on `city`:
+
+```
+validate(person)                  effective [Default]
+  city's {Default}                intersects -> evaluated
+  a Strict-only city's {Strict}   no          -> skipped
+
+validate(person, Strict.class)    effective [Strict]
+  city's {Default}                no          -> skipped
+  a Strict-only city's {Strict}   intersects -> evaluated
+```
+
 That check is the "group check, then:" elided from the walk two sections up — one `continue`
 per constraint, before its validator is ever instantiated:
 
@@ -444,6 +534,12 @@ for (ConstraintDescriptorImpl<?> descriptor : property.constraints()) {
             property.accessor().getType(), value, descriptor));
 }
 ```
+
+Note where the `continue` does *not* sit: outside the cascading branch. On a `Person` whose
+`Address` has a `Strict`-only `city`, `validate(person)` under `Default` still walks down into
+`address` — descent is never group-filtered — reaches `city`, and drops that one constraint on
+the `continue`. Zero violations, but the walk happened. Ask for `Strict` and the same walk
+keeps the constraint: one violation, on `address.city`.
 
 (Expansion of the requested groups — inheritance — is the next commit.)
 
@@ -478,6 +574,11 @@ private static void collect(Class<?> group, Set<Class<?>> into) {
     }
 }
 ```
+
+Carried over to the running example: declare `interface Paranoid extends Strict {}` and
+`expand(Paranoid)` returns `{Paranoid, Strict}` — so `validate(person, Paranoid.class)` fires
+the `@NotBlank(groups = Strict.class)` on `address.city`, without `Strict` ever being named at
+the call site.
 
 Worth being honest about this one rather than forcing it into the same shape as the rest:
 its test — `interface ExtendedGroup extends BaseGroup {}`, a constraint declared under
@@ -598,6 +699,16 @@ static List<List<Class<?>>> resolveSheets(Class<?>[] requestedGroups) {
 }
 ```
 
+What that returns for the calls the running example can make — with
+`@GroupSequence({Default.class, Strict.class}) interface FullCheck {}` for the last one:
+
+```
+validate(person)                    ->  [[Default]]
+validate(person, Strict.class)      ->  [[Strict]]
+validate(person, Paranoid.class)    ->  [[Paranoid, Strict]]     one sheet, inheritance expanded
+validate(person, FullCheck.class)   ->  [[Default], [Strict]]    two sheets, in order
+```
+
 The second half is what the previous two sections already relied on — every requested group,
 expanded with its super-interfaces, merged into one flat sheet. The first half is new: a
 sequence becomes one sheet per step, in order. `validate()` then walks the sheets and returns
@@ -616,6 +727,12 @@ for (List<Class<?>> sheet : GroupsSupport.resolveSheets(groups)) {
 }
 return Set.of();
 ```
+
+Say `Person` also has a `@NotBlank String name` of its own, left blank, and its
+`address.city` is blank too. Under `FullCheck`, the first sheet (`Default`) already yields the
+`name` violation, the loop returns right there, and `address.city` is never even looked at —
+one violation back, not two. Fix the name and the second sheet runs, reporting
+`address.city`.
 
 `validateProperty` and `validateValue` get the same loop around their single-property check.
 
@@ -764,6 +881,12 @@ private <T, A extends Annotation> List<ConstraintViolationImpl<T>> evaluateConst
     // ... collapse under @ReportAsSingleViolation, or return collected
 }
 ```
+
+For the violation the running example produces, those parameters carry: `rootBean` = the
+`Person`, `leafBean` = the `Address`, `propertyPath` = `address.city`, `value` = `""`. Swap
+`@NotBlank` for a composed constraint and the recursive call below passes that same `Address`
+and that same path down to each composing constraint — the leaf bean is the nested object, at
+every level of the composition.
 
 The group check you saw in the groups section sits in the *caller*, one line above the call
 to this method — so a composed constraint is filtered exactly once, by its own `groups()`,
