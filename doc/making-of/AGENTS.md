@@ -91,6 +91,13 @@ Concretely, for each example:
 
 - Quote the real code from the actual source file (constraint/validator/annotation and the
   test method), copy-pasted, not paraphrased or simplified into pseudo-code.
+- **Carry one running example through the whole post** — for M3 it is `Person` holding a
+  `@Valid Address` whose `city` is `@NotBlank` — and show every production snippet acting on
+  it: what the method returns for that bean, what the record holds, the walk traced line by
+  line. A snippet of engine code with no instance behind it is a definition; the same
+  snippet followed by "on `Person`, this gives…" is an explanation. Reuse the example even
+  when the test fixture differs (the cycle test uses `Node`; the post still shows the loop
+  as `person -> address -> person`).
 - Show the code before the command, every time — the fixture (the class and annotations the
   point is about) and the test method itself, trimmed, with a sentence on what the test asks
   for. A bare `expected: <1> but was: <0>` means nothing to someone who has not seen the
