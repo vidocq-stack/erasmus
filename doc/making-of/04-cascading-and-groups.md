@@ -313,7 +313,7 @@ yet to even attempt the recursion, but proof the two-node case wasn't handled.
 on the way in. Before looking at a bean, `validateGraph` tries to add it to that set; if it
 was already there, this path has looped back on itself, and the walk stops right there
 instead of descending again. In this commit, there is one such set per `validate()` call; the
-`@GroupSequence` commit later narrows that to one per group *sheet* (explained there):
+`@GroupSequence` commit later narrows that to one per *step* (explained there):
 
 ```java
 private <T> void validateGraph(..., Set<Object> visited, ...) {
@@ -345,7 +345,7 @@ never a field, never static, never a `ThreadLocal`:
 
 ```java
 Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-validateGraph(object, beanClass, object, sheet, null, visited, sheetViolations);
+validateGraph(object, beanClass, object, step, null, visited, stepViolations);
 ```
 
 Why identity rather than `equals()`, on that same ring: `a` and `b` are two distinct `Node`s
@@ -711,7 +711,7 @@ once the fixture gained a second constraint that had to stay silent.
 ## `@GroupSequence`: stopping at the first failing step
 
 *Commit `feat(m3): @GroupSequence -- stop at the first failing step`. Files to open: [`GroupsSupport.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/GroupsSupport.java)
-(`resolve` becomes `resolveSheets`) and [`ErasmusValidator.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/ErasmusValidator.java) (the per-sheet loop at the top of
+(`resolve` becomes `resolveSteps`) and [`ErasmusValidator.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/ErasmusValidator.java) (the per-step loop at the top of
 `validate`, `validateProperty`, `validateValue`).*
 
 **Goal.** `validate(bean, OrderedSequence.class)`, where `OrderedSequence` is
@@ -769,21 +769,34 @@ $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
 Both steps' violations came back, because — same root cause as plain groups above —
 nothing was filtering by group yet, sequence or not.
 
-**What was built.** The requested groups for a `validate(...)` call resolve to an ordered
-list of "sheets" — each one a flat set of groups to check as a unit, evaluated in order,
-stopping at the first sheet that produces any violation at all:
+**What was built.** One idea, and everything else follows from it: a `validate(...)` call
+does not evaluate *one* set of groups, it evaluates an ordered *list* of sets, one after
+another, and stops as soon as one of them produces a violation. Call each element of that
+list a **step** — the spec's own word for what a sequence is made of ("each group in a group
+sequence must be processed sequentially").
+
+Almost every call has exactly one step, and then the list adds nothing: `validate(account)`
+is the single step `[Default]`, `validate(account, Strict.class)` the single step `[Strict]`.
+Nothing to stop at, because there is nothing after it. A sequence is the case where the list
+is longer than one: `@GroupSequence({StepOne.class, StepTwo.class})` becomes the two steps
+`[StepOne]` then `[StepTwo]`, and *that* is where stopping early means something.
+
+So `resolveSteps` turns whatever was asked for into that list:
 
 ```java
-static List<List<Class<?>>> resolveSheets(Class<?>[] requestedGroups) {
+static List<List<Class<?>>> resolveSteps(Class<?>[] requestedGroups) {
     Class<?>[] groups = requestedGroups.length == 0 ? new Class<?>[] {Default.class} : requestedGroups;
+
+    // a sequence: one step per group it lists, in the declared order
     if (groups.length == 1 && groups[0].isAnnotationPresent(GroupSequence.class)) {
-        List<List<Class<?>>> sheets = new ArrayList<>();
-        for (Class<?> step : groups[0].getAnnotation(GroupSequence.class).value()) {
-            sheets.add(List.copyOf(expand(step)));
+        List<List<Class<?>>> steps = new ArrayList<>();
+        for (Class<?> sequencedGroup : groups[0].getAnnotation(GroupSequence.class).value()) {
+            steps.add(List.copyOf(expand(sequencedGroup)));
         }
-        return List.copyOf(sheets);
+        return List.copyOf(steps);
     }
 
+    // anything else: everything asked for, expanded, as one single step
     Set<Class<?>> merged = new LinkedHashSet<>();
     for (Class<?> group : groups) {
         merged.addAll(expand(group));
@@ -797,39 +810,40 @@ below:
 
 ```
 validate(account)                       ->  [[Default]]              nothing asked, Default assumed
-validate(account, Strict.class)         ->  [[Strict]]               plain group, single sheet
-validate(item, ExtendedGroup.class)     ->  [[ExtendedGroup,         plain group, single sheet,
+validate(account, Strict.class)         ->  [[Strict]]               plain group, single step
+validate(item, ExtendedGroup.class)     ->  [[ExtendedGroup,         plain group, single step,
                                               BaseGroup]]            inheritance expanded into it
-validate(form, OrderedSequence.class)   ->  [[StepOne], [StepTwo]]   a sequence: one sheet per step
+validate(form, OrderedSequence.class)   ->  [[StepOne], [StepTwo]]   a sequence: one step per group
 ```
 
 Only the last line takes the first branch of the method; the three above it fall through to
-the merge at the bottom.
+the merge at the bottom and come back as a one-element list. Note what the outer list means
+in each case: for the first three it is "one step, nothing to short-circuit"; for the last it
+is "`StepOne` first, and `StepTwo` only if `StepOne` was clean".
 
 The second half is what the previous two sections already relied on — every requested group,
-expanded with its super-interfaces, merged into one flat sheet. The first half is new: a
-sequence becomes one sheet per step, in order. `validate()` then walks the sheets and returns
-at the first one that produces anything — with a fresh visited set per sheet, which is the
-narrowing the cycle-detection section promised: revisiting a bean under a later, independent
-sheet is never mistaken for a cycle.
+expanded with its super-interfaces, merged into one flat step. The first half is new: a
+sequence becomes one step per group it lists, in order. `validate()` then walks those steps and returns at the first one that produces anything —
+with a fresh visited set per step, which is the narrowing the cycle-detection section
+promised: revisiting a bean under a later, independent step is never mistaken for a cycle.
 
 ```java
-for (List<Class<?>> sheet : GroupsSupport.resolveSheets(groups)) {
-    Set<ConstraintViolation<T>> sheetViolations = new LinkedHashSet<>();
+for (List<Class<?>> step : GroupsSupport.resolveSteps(groups)) {
+    Set<ConstraintViolation<T>> stepViolations = new LinkedHashSet<>();
     Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-    validateGraph(object, beanClass, object, sheet, null, visited, sheetViolations);
-    if (!sheetViolations.isEmpty()) {
-        return sheetViolations;
+    validateGraph(object, beanClass, object, step, null, visited, stepViolations);
+    if (!stepViolations.isEmpty()) {
+        return stepViolations;   // short-circuit: later steps are never evaluated
     }
 }
 return Set.of();
 ```
 
 On `new Form("", "")` — both fields blank, so both steps would fail if both were evaluated —
-`validate(form, OrderedSequence.class)` runs sheet `[StepOne]`, gets the `field1` violation,
+`validate(form, OrderedSequence.class)` runs step `[StepOne]`, gets the `field1` violation,
 and returns right there: `field2` is never looked at, and the caller sees one violation, not
-two. Fix `field1` only and sheet one comes back empty, so the loop moves on to `[StepTwo]` and
-reports `field2`. Those are precisely the two tests below.
+two. Fix `field1` only and the first step comes back empty, so the loop moves on to
+`[StepTwo]` and reports `field2`. Those are precisely the two tests below.
 
 `validateProperty` and `validateValue` get the same loop around their single-property check.
 
@@ -850,12 +864,12 @@ with `StepOne` passing and only `StepTwo` failing, "run everything unconditional
 actually tell the two implementations apart, which is why that's the one quoted as red above.
 
 **Deliberate scope gap, documented rather than silently wrong** — and quoting the spec
-actually shrinks it. Several *plain* groups in one call collapsing into one unordered sheet is
+actually shrinks it. Several *plain* groups in one call collapsing into one unordered step is
 not a gap at all; it is what [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups) prescribes: "When more than one group is evaluated
 and passed to the various validate methods, order is not constrained. It is equivalent to the
 validation of a group G inheriting all groups". The gap is narrower: when one of several
 requested groups is *itself* a sequence, §5.4.2 says "each composed group must respect the
-sequence order as well", and we flatten it instead. Rare in practice (most real calls pass
+sequence order as well", and we flatten it into one step instead. Rare in practice (most real calls pass
 either `Default` or one custom sequence), but a real divergence, not an oversight.
 
 ## Putting cascading and groups together
