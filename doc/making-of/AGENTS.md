@@ -108,6 +108,19 @@ Concretely, for each example:
   replaced: keep the old body above the new one, commented as such
   (`// before — written in M1 and never revisited`), whenever the point of the snippet is
   that the previous version was wrong.
+- **Measure the red against the commit's own parent, not against the branch point.** On an
+  incremental branch, each commit's test should be red on the commit just before it — that is
+  what proves *that* commit did something. The group-inheritance test looks green against the
+  branch point and red against its parent (`expected: <[sku]> but was: <[]>`), because the
+  commit before it had filtering but no expansion; quoting the wrong baseline would have
+  hidden the whole point. A throwaway `git worktree add --detach <parent>` with the new test
+  copied in gives the real output in a minute.
+- **If a test cannot go red, it is not proof yet — fix the fixture.** A fixture with a single
+  constraint cannot tell "evaluate everything" from "evaluate the right thing": both answer
+  the same. Give it something that must stay silent (a constraint in an unrelated group, a
+  nested bean that must not be reached) and the test starts having an opinion. When a section
+  has to admit its test was worthless at first, say so — that story is more useful than the
+  green run.
 - Show the code before the command, every time — the fixture (the class and annotations the
   point is about) and the test method itself, trimmed, with a sentence on what the test asks
   for. A bare `expected: <1> but was: <0>` means nothing to someone who has not seen the
