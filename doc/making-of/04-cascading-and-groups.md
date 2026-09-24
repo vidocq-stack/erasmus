@@ -584,18 +584,94 @@ $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest#defaultGrou
 [INFO] BUILD SUCCESS
 ```
 
-### Group inheritance: a case with no honest red state to show
+### Group inheritance: the test that could not fail, and its replacement
 
 *Commit `feat(m3): group inheritance`. File to open: [`GroupsSupport.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/GroupsSupport.java), `expand` and `collect`.*
 
-[Jakarta Bean Validation 3.1, §5.4.1 *Group inheritance*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-groupsequence-groupinheritance) defines it in one sentence:
+**Goal.** A group can be a superset of another, by plain interface inheritance, and asking
+for the subgroup has to bring the supergroup's constraints along —
+[Jakarta Bean Validation 3.1, §5.4.1 *Group inheritance*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-groupsequence-groupinheritance):
 
 > For a given interface Z, constraints marked as belonging to the group Z (i.e. where the
 > annotation element `groups` contains the interface Z) or any of the super interfaces of Z
 > (inherited groups) are considered part of the group Z.
 
-Which is a recursive walk over `Class.getInterfaces()` in the new `GroupsSupport`, and
-nothing more:
+Concretely: `ExtendedGroup extends BaseGroup`, a constraint declared under `BaseGroup`, and a
+call that names only `ExtendedGroup` — the constraint must run, without `BaseGroup` ever
+appearing at the call site.
+
+**First attempt at a test, and why it was worthless.** The original fixture had exactly one
+constraint:
+
+```java
+private static final class Item {
+    @NotNull(groups = BaseGroup.class)
+    private String sku;
+}
+```
+
+and the test asserted `1` violation on `sku` for `validate(item, ExtendedGroup.class)`. It
+passed. It also passed against the engine *before any group support existed at all*, because
+back then every constraint ran regardless of the groups argument — with a single constraint in
+the fixture, "run everything" and "run exactly the right thing" give the same answer. A test
+that cannot distinguish the two implementations proves neither.
+
+The fix is the same one the `Account` pair uses: give the fixture something that must *not*
+fire, in a group that is genuinely unrelated to the one requested.
+
+```java
+private interface BaseGroup {
+}
+
+private interface ExtendedGroup extends BaseGroup {
+}
+
+private interface UnrelatedGroup {
+}
+
+private static final class Item {
+    @NotNull(groups = BaseGroup.class)          // ExtendedGroup extends BaseGroup -> must fire
+    private String sku;
+
+    @NotNull(groups = UnrelatedGroup.class)     // no relation to ExtendedGroup -> must not fire
+    private String ean;
+}
+```
+
+```java
+@Test
+void groupInheritance_extendedGroupPullsInBaseGroupConstraints() {
+    Set<ConstraintViolation<Item>> violations = validator.validate(new Item(null, null), ExtendedGroup.class);
+
+    assertEquals(Set.of("sku"), violatedPaths(violations),
+            "ExtendedGroup extends BaseGroup, so sku must fire; UnrelatedGroup is unrelated, so ean must not");
+}
+```
+
+Both fields are `null`, so both constraints would fire if the group filter let them. Now the
+test has an opinion, and it is red against both of the engines that came before it — for
+opposite reasons, which is what makes it a real test. Against the previous commit, where
+groups filter but do not expand, `ExtendedGroup` matches nothing at all:
+
+```
+$ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest#groupInheritance_extendedGroupPullsInBaseGroupConstraints
+[ERROR] CascadingAndGroupsTest.groupInheritance_extendedGroupPullsInBaseGroupConstraints:221
+        ExtendedGroup extends BaseGroup, so sku must fire; UnrelatedGroup is unrelated, so ean must not
+        ==> expected: <[sku]> but was: <[]>
+```
+
+And against the engine as it stood before this milestone, where nothing filtered, *both*
+constraints fire:
+
+```
+        ==> expected: <[sku]> but was: <[sku, ean]>
+```
+
+`[]` on one side, `[sku, ean]` on the other, `[sku]` wanted: only an implementation that walks
+up the interface hierarchy — and stops there — lands in between.
+
+**What was built.** `expand` collects a group and everything it extends, recursively, and
+`resolve` runs every requested group through it before `intersects` ever sees the list:
 
 ```java
 private static void collect(Class<?> group, Set<Class<?>> into) {
@@ -608,51 +684,29 @@ private static void collect(Class<?> group, Set<Class<?>> into) {
 }
 ```
 
-On the fixture just below, where `ExtendedGroup extends BaseGroup` and `Item.sku` carries
-`@NotNull(groups = BaseGroup.class)`:
+On this fixture:
 
 ```
-expand(ExtendedGroup)   ->  {ExtendedGroup, BaseGroup}
-  sku's {BaseGroup}     ->  in that set, so the constraint runs
+expand(ExtendedGroup)     ->  {ExtendedGroup, BaseGroup}
+  sku's {BaseGroup}       ->  in that set      -> evaluated -> violation "sku"
+  ean's {UnrelatedGroup}  ->  not in that set  -> skipped
 ```
 
-`validate(item, ExtendedGroup.class)` therefore fires a constraint that never names
-`ExtendedGroup` at all — which is exactly what §5.4.1 asks for.
+The `into.add` guard doubles as the cycle protection: interface hierarchies are acyclic in
+Java, but a group can be reached twice through a diamond, and adding it twice would just be
+wasted work.
 
-Worth being honest about this one rather than forcing it into the same shape as the rest:
-its test — `interface ExtendedGroup extends BaseGroup {}`, a constraint declared under
-`BaseGroup`, requested with `ExtendedGroup.class` — actually **passed even before any group
-support existed**, purely by coincidence. With no filtering at all, every constraint ran
-unconditionally regardless of which group was requested, and this fixture only has one
-constraint in play — so "run everything" and "run the right thing" produce the same answer
-when there's nothing else competing for attention. A passing test isn't always proof; it
-took the `Default`-vs-explicit tests above (which *do* have two competing constraints) to
-actually expose that groups weren't implemented yet. Real proof, now that inheritance is
-actually implemented on purpose rather than accidentally correct — `Item` declares its only
-constraint under `BaseGroup`, and the test asks for `ExtendedGroup`, which extends it:
+**Proof.**
 
-```java
-private interface BaseGroup {
-}
-
-private interface ExtendedGroup extends BaseGroup {
-}
-
-private static final class Item {
-    @NotNull(groups = BaseGroup.class)
-    private String sku;
-}
+```
+$ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest#groupInheritance_extendedGroupPullsInBaseGroupConstraints
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.119 s
+[INFO] BUILD SUCCESS
 ```
 
-```java
-@Test
-void groupInheritance_extendedGroupPullsInBaseGroupConstraints() {
-    Set<ConstraintViolation<Item>> violations = validator.validate(new Item(null), ExtendedGroup.class);
-
-    assertEquals(1, violations.size());
-    assertEquals("sku", violations.iterator().next().getPropertyPath().toString());
-}
-```
+Worth keeping the first version of this section in mind, though, because the lesson outlived
+it: a green test is not evidence until you know it can go red. This one only earned its place
+once the fixture gained a second constraint that had to stay silent.
 
 ## `@GroupSequence`: stopping at the first failing step
 
@@ -788,7 +842,7 @@ $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest#groupSequen
 [INFO] BUILD SUCCESS
 ```
 
-Small aside, same flavor as group inheritance above: the "proceeds to the second group"
+Small aside, the same trap as the first group-inheritance test: the "proceeds to the second group"
 direction of this pair also happened to already read correctly before sequences existed —
 with `StepOne` passing and only `StepTwo` failing, "run everything unconditionally" and
 "stop at the first failure, then check the next" land on the same single violation. Only the
