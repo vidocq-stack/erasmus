@@ -432,50 +432,63 @@ what was requested. Both halves are spelled out — [Jakarta Bean Validation 3.1
 and, for the call site, [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups): "If no group is passed, the `Default` group is assumed."
 Two tests pin this down: one confirming the *default* call still only
 sees `Default`-group constraints, one confirming an *explicit* group call only sees that
-group's. Same `Account` in both, same broken values — a blank `username` under a plain
-`@NotBlank` (so, `Default`) and a too-short `password` under `@Size(groups = Strict.class)`:
+group's. One fixture serves both, and the whole point is that it carries **exactly two
+constraints, in two different groups, and violates both at once**:
 
 ```java
 private static final class Account {
-    @NotBlank
+    @NotBlank                                   // no groups() declared -> Default group
     private String username;
 
-    @Size(min = 8, groups = Strict.class)
+    @Size(min = 8, groups = Strict.class)       // Strict group only
     private String password;
 }
 ```
 
-The two tests differ by a single argument to `validate`, and each expects the *other*
-violation to be the only one:
+Built as `new Account("", "short")`, both are broken: the username is blank, the password is
+five characters. So "evaluate everything" would report *two* violations, and a correct
+group filter reports exactly *one* — a different one per call. That is what makes this pair
+able to tell the two behaviours apart, where a single-constraint fixture could not.
+
+The two tests differ by a single argument to `validate`, and each asserts on the *set of
+violated paths* rather than on a count, so a failure says which constraints fired instead of
+just how many:
 
 ```java
 @Test
 void defaultGroup_onlyEvaluatesDefaultGroupConstraints() {
     Set<ConstraintViolation<Account>> violations = validator.validate(new Account("", "short"));
 
-    assertEquals(1, violations.size());
-    assertEquals("username", violations.iterator().next().getPropertyPath().toString());
+    assertEquals(Set.of("username"), violatedPaths(violations),
+            "Default requested: @NotBlank on username must fire, @Size(groups = Strict) on password must not");
 }
 
 @Test
 void explicitGroup_onlyEvaluatesThatGroupsConstraints() {
     Set<ConstraintViolation<Account>> violations = validator.validate(new Account("", "short"), Strict.class);
 
-    assertEquals(1, violations.size());
-    assertEquals("password", violations.iterator().next().getPropertyPath().toString());
+    assertEquals(Set.of("password"), violatedPaths(violations),
+            "Strict requested: @Size(groups = Strict) on password must fire, @NotBlank on username must not");
 }
 ```
 
-Both were red before groups existed at all:
+Before groups existed at all, both were red — and the failure lines say exactly what went
+wrong, without having to open the fixture:
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
-[ERROR]   CascadingAndGroupsTest.defaultGroup_onlyEvaluatesDefaultGroupConstraints:156 expected: <1> but was: <2>
-[ERROR]   CascadingAndGroupsTest.explicitGroup_onlyEvaluatesThatGroupsConstraints:164 expected: <1> but was: <2>
+[ERROR] CascadingAndGroupsTest.defaultGroup_onlyEvaluatesDefaultGroupConstraints:174
+        Default requested: @NotBlank on username must fire, @Size(groups = Strict) on password must not
+        ==> expected: <[username]> but was: <[username, password]>
+[ERROR] CascadingAndGroupsTest.explicitGroup_onlyEvaluatesThatGroupsConstraints:182
+        Strict requested: @Size(groups = Strict) on password must fire, @NotBlank on username must not
+        ==> expected: <[password]> but was: <[username, password]>
 ```
 
-Two violations instead of one, both times — because the engine evaluated every constraint
-unconditionally, `groups` argument or not.
+`[username, password]` both times: the engine evaluated every constraint it could find and
+ignored the `groups` argument entirely — which is also why the two expectations differ
+(`[username]` under `Default`, `[password]` under `Strict`) while the actual result was
+identical.
 
 **What was built.** `ConstraintDescriptorImpl.getGroups()` was hardcoded to
 `Set.of(Default.class)` since M1 — nobody had populated a constraint's `groups()` attribute
@@ -547,7 +560,7 @@ keeps the constraint: one violation, on `address.city`.
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest#defaultGroup_onlyEvaluatesDefaultGroupConstraints+explicitGroup_onlyEvaluatesThatGroupsConstraints
-[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.160 s
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.114 s
 [INFO] BUILD SUCCESS
 ```
 
