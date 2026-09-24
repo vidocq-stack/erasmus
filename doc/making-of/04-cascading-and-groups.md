@@ -324,18 +324,18 @@ private <T> void validateGraph(..., Set<Object> visited, ...) {
 }
 ```
 
-The running example has no cycle yet, but one back-reference is enough to make one — give
-`Address` a `@Valid Person resident` pointing home, and the walk would loop forever without
-this guard:
+On the ring the test builds — `a.next = b`, `b.next = a`, both names `null`:
 
 ```
-validate(person)
-  visited = {}                    add person   -> new, walk it
-    descend into "address"
-  visited = {person}              add address  -> new, walk it
-    descend into "address.resident", which is person again
-  visited = {person, address}     add person   -> already there, return
+validate(a)
+  visited = {}          add a  -> new, walk it: @NotNull on name fails      -> "name"
+    a.next = b, cascaded and non-null -> descend
+  visited = {a}         add b  -> new, walk it: @NotNull on name fails      -> "next.name"
+    b.next = a, cascaded and non-null -> descend
+  visited = {a, b}      add a  -> already in the set, return immediately
 ```
+
+Two violations, and that third descent is where the walk would otherwise have looped forever.
 
 What kind of set matters: it has to compare by *identity* (`==`), not by `equals()` — two
 unrelated beans that happen to be `equals()`-equal must never be confused for the same graph
@@ -348,10 +348,11 @@ Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
 validateGraph(object, beanClass, object, sheet, null, visited, sheetViolations);
 ```
 
-Why identity rather than `equals()`, on the running example: a `Person` with two `Address`
-fields holding two *distinct* instances that both have `city = ""` would be one single entry
-in an `equals()`-based set — the second address silently skipped, its violation lost. With
-identity they stay two nodes, and both are validated.
+Why identity rather than `equals()`, on that same ring: `a` and `b` are two distinct `Node`s
+that both hold `name = null`. Give `Node` the `equals` you would naturally write — by `name` —
+and an `equals()`-based set would consider `b` already visited the moment `a` went in, skip
+it, and report one violation instead of two. Identity keeps them apart because they *are*
+apart.
 
 **Proof.**
 
@@ -497,16 +498,29 @@ generically (that's how `payload()` got wired through back in M2), so the fix wa
 with that:
 
 ```java
+// before — written in M1 and never revisited: whatever the annotation declared, it was Default
+public Set<Class<?>> getGroups() {
+    return Set.of(Default.class);
+}
+
+// after
 public Set<Class<?>> getGroups() {
     Class<?>[] groups = (Class<?>[]) attributes.get("groups");
     return groups == null || groups.length == 0 ? Set.of(Default.class) : Set.of(groups);
 }
 ```
 
-On `Address.city`'s plain `@NotBlank`, `groups()` is the empty array the annotation declares
-by default, so this returns `{Default}`. Move that constraint into a group —
-`@NotBlank(groups = Strict.class)`, which is the `StrictAddress` used further down — and it
-returns `{Strict}`.
+On the `Account` above, the two constraints now answer differently, where the old body
+answered `{Default}` for both:
+
+```
+@NotBlank                       on username   groups() = {}              -> {Default}
+@Size(min = 8,                  on password   groups() = {Strict.class}  -> {Strict}
+      groups = Strict.class)
+```
+
+That second line is the one the old body got wrong, and the whole reason `password` was being
+validated on a `Default` call.
 
 The requested groups become a list (no groups at all means `Default`), and a constraint is
 kept when any of its declared groups is in that list — `GroupsSupport.intersects`, which is as
@@ -523,17 +537,21 @@ static boolean intersects(Set<Class<?>> constraintGroups, List<Class<?>> effecti
 }
 ```
 
-Both calls the tests make, on `city`:
+Put the two calls the tests make next to the two constraints `Account` declares, and every
+line of the red output above is accounted for:
 
 ```
-validate(person)                  effective [Default]
-  city's {Default}                intersects -> evaluated
-  a Strict-only city's {Strict}   no          -> skipped
+validate(account)                 effective groups [Default]
+  username's {Default}            intersects -> evaluated -> violation "username"
+  password's {Strict}             no          -> skipped
 
-validate(person, Strict.class)    effective [Strict]
-  city's {Default}                no          -> skipped
-  a Strict-only city's {Strict}   intersects -> evaluated
+validate(account, Strict.class)   effective groups [Strict]
+  username's {Default}            no          -> skipped
+  password's {Strict}             intersects -> evaluated -> violation "password"
 ```
+
+Before this method existed, that right-hand column read "evaluated" four times out of four —
+`[username, password]` on both calls.
 
 That check is the "group check, then:" elided from the walk two sections up — one `continue`
 per constraint, before its validator is ever instantiated:
@@ -548,11 +566,13 @@ for (ConstraintDescriptorImpl<?> descriptor : property.constraints()) {
 }
 ```
 
-Note where the `continue` does *not* sit: outside the cascading branch. On a `Person` whose
-`Address` has a `Strict`-only `city`, `validate(person)` under `Default` still walks down into
-`address` — descent is never group-filtered — reaches `city`, and drops that one constraint on
-the `continue`. Zero violations, but the walk happened. Ask for `Strict` and the same walk
-keeps the constraint: one violation, on `address.city`.
+Note where the `continue` does *not* sit: it guards the constraint loop, not the cascading
+branch a few lines below it. `Account` is flat, so nothing here shows that — it is the
+cascaded fixture of [Putting cascading and groups together](#putting-cascading-and-groups-together),
+further down, that does: under `Default`, the walk still descends into a `@Valid` property
+whose only constraint is `Strict`-only, reaches it, and drops it on this `continue`. Zero
+violations, but the descent happened. Group filtering picks constraints; it never prunes the
+graph.
 
 (Expansion of the requested groups — inheritance — is the next commit.)
 
@@ -588,10 +608,16 @@ private static void collect(Class<?> group, Set<Class<?>> into) {
 }
 ```
 
-Carried over to the running example: declare `interface Paranoid extends Strict {}` and
-`expand(Paranoid)` returns `{Paranoid, Strict}` — so `validate(person, Paranoid.class)` fires
-the `@NotBlank(groups = Strict.class)` on `address.city`, without `Strict` ever being named at
-the call site.
+On the fixture just below, where `ExtendedGroup extends BaseGroup` and `Item.sku` carries
+`@NotNull(groups = BaseGroup.class)`:
+
+```
+expand(ExtendedGroup)   ->  {ExtendedGroup, BaseGroup}
+  sku's {BaseGroup}     ->  in that set, so the constraint runs
+```
+
+`validate(item, ExtendedGroup.class)` therefore fires a constraint that never names
+`ExtendedGroup` at all — which is exactly what §5.4.1 asks for.
 
 Worth being honest about this one rather than forcing it into the same shape as the rest:
 its test — `interface ExtendedGroup extends BaseGroup {}`, a constraint declared under
@@ -712,15 +738,19 @@ static List<List<Class<?>>> resolveSheets(Class<?>[] requestedGroups) {
 }
 ```
 
-What that returns for the calls the running example can make — with
-`@GroupSequence({Default.class, Strict.class}) interface FullCheck {}` for the last one:
+What it returns for the calls this post has already made, the last one using the fixture
+below:
 
 ```
-validate(person)                    ->  [[Default]]
-validate(person, Strict.class)      ->  [[Strict]]
-validate(person, Paranoid.class)    ->  [[Paranoid, Strict]]     one sheet, inheritance expanded
-validate(person, FullCheck.class)   ->  [[Default], [Strict]]    two sheets, in order
+validate(account)                       ->  [[Default]]              nothing asked, Default assumed
+validate(account, Strict.class)         ->  [[Strict]]               plain group, single sheet
+validate(item, ExtendedGroup.class)     ->  [[ExtendedGroup,         plain group, single sheet,
+                                              BaseGroup]]            inheritance expanded into it
+validate(form, OrderedSequence.class)   ->  [[StepOne], [StepTwo]]   a sequence: one sheet per step
 ```
+
+Only the last line takes the first branch of the method; the three above it fall through to
+the merge at the bottom.
 
 The second half is what the previous two sections already relied on — every requested group,
 expanded with its super-interfaces, merged into one flat sheet. The first half is new: a
@@ -741,11 +771,11 @@ for (List<Class<?>> sheet : GroupsSupport.resolveSheets(groups)) {
 return Set.of();
 ```
 
-Say `Person` also has a `@NotBlank String name` of its own, left blank, and its
-`address.city` is blank too. Under `FullCheck`, the first sheet (`Default`) already yields the
-`name` violation, the loop returns right there, and `address.city` is never even looked at —
-one violation back, not two. Fix the name and the second sheet runs, reporting
-`address.city`.
+On `new Form("", "")` — both fields blank, so both steps would fail if both were evaluated —
+`validate(form, OrderedSequence.class)` runs sheet `[StepOne]`, gets the `field1` violation,
+and returns right there: `field2` is never looked at, and the caller sees one violation, not
+two. Fix `field1` only and sheet one comes back empty, so the loop moves on to `[StepTwo]` and
+reports `field2`. Those are precisely the two tests below.
 
 `validateProperty` and `validateValue` get the same loop around their single-property check.
 

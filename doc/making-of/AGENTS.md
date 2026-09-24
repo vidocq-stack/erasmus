@@ -91,13 +91,23 @@ Concretely, for each example:
 
 - Quote the real code from the actual source file (constraint/validator/annotation and the
   test method), copy-pasted, not paraphrased or simplified into pseudo-code.
-- **Carry one running example through the whole post** — for M3 it is `Person` holding a
-  `@Valid Address` whose `city` is `@NotBlank` — and show every production snippet acting on
-  it: what the method returns for that bean, what the record holds, the walk traced line by
-  line. A snippet of engine code with no instance behind it is a definition; the same
-  snippet followed by "on `Person`, this gives…" is an explanation. Reuse the example even
-  when the test fixture differs (the cycle test uses `Node`; the post still shows the loop
-  as `person -> address -> person`).
+- **Never show a snippet of engine code without an instance behind it.** A method, a record,
+  a loop on its own is a definition; followed by "on `Account`, this gives…" it becomes an
+  explanation. Trace what the code returns for a real bean: what the record holds, which
+  branch each constraint takes, the walk line by line.
+- **Illustrate with the fixture that section's own tests use** — the one already on the
+  reader's screen. The post carries a running example across sections (`Person` holding a
+  `@Valid Address` whose `city` is `@NotBlank`), but a section whose tests are built on
+  `Account` explains its snippets with `Account`, and the group-sequence section with `Form`.
+  Switching to a fixture defined two hundred lines away, or inventing one on the spot, is the
+  fastest way to lose someone who was following. When a point genuinely needs a fixture the
+  section does not have — group filtering not pruning the graph needs a cascaded bean, and
+  `Account` is flat — say so and link to the section that has it, rather than quietly
+  swapping fixtures mid-paragraph.
+- **Show what a changed method replaced.** A fix reads as a fix only next to what it
+  replaced: keep the old body above the new one, commented as such
+  (`// before — written in M1 and never revisited`), whenever the point of the snippet is
+  that the previous version was wrong.
 - Show the code before the command, every time — the fixture (the class and annotations the
   point is about) and the test method itself, trimmed, with a sentence on what the test asks
   for. A bare `expected: <1> but was: <0>` means nothing to someone who has not seen the
