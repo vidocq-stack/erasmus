@@ -1,7 +1,7 @@
 # Erasmus
 
 **Jakarta Validation 3.1** (Bean Validation) implementation for the
-[Vidocq](https://codeberg.org/Vidocq/vidocq) runtime.
+[Vidocq](https://codefloe.com/Vidocq/vidocq) runtime.
 
 > Named after **Erasmus of Rotterdam** (1466–1536), the humanist who spent his
 > life critically validating texts against their sources — the metaphor for a
@@ -14,7 +14,7 @@
 ## Ecosystem rules
 
 Erasmus follows the transverse Vidocq philosophy (see the workspace
-[CLAUDE.md](https://codeberg.org/Vidocq/vidocq) conventions):
+[CLAUDE.md](https://codefloe.com/Vidocq/vidocq) conventions):
 
 - **Zero third-party dependency** — only the Jakarta Validation 3.1 API.
 - **Strict Java Modules (JPMS)** — proper `module-info.java`, minimal `exports`,
