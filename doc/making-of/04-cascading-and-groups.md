@@ -14,13 +14,13 @@ Then it was time to start M3. From `ROADMAP.md`:
 >
 > **Deliverable:** cascaded validation across arbitrary (including circular) object graphs
 > for single bean references, correct group-sequence short-circuiting for the
-> single-sequence-group case. 87 tests total (up from 76), all green.
+> single-sequence-group case. 88 tests total (up from 76), all green.
 
 One more thing before the sections, about how to read them: **each section below is one
 commit**, titled the same way, so `git log --oneline` on this milestone's branch reads like
-this post's table of contents and the diff of a commit can sit next to its section. Two
-exceptions, both deliberate and both explained where they happen — cascading and cycle
-detection share one commit, and the last section has no commit of its own. Every section
+this post's table of contents and the diff of a commit can sit next to its section. One
+exception, deliberate and explained where it happens — cascading and cycle detection share
+one commit, since neither is any use without the other. Every section
 opens with the files worth having open alongside it — and quotes the sentence of the spec it
 implements, [Jakarta Bean Validation 3.1](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1), with its section number. Where the spec has
 nothing to say about a point, the section says that too.
@@ -1025,15 +1025,44 @@ $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest#cascadedPro
 
 ## Making this compose with M2's composed constraints
 
-*No commit of its own — it is a property of where the first two commits put things. Files to
-open: [`ErasmusValidator.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/ErasmusValidator.java) (`evaluateConstraint`, and who calls it) next to [`CustomConstraintAuthoringTest.java`](../../erasmus-core/src/test/java/io/vidocq/erasmus/core/internal/CustomConstraintAuthoringTest.java).*
+*Commit `test(m3): a composed constraint, cascaded, under a group`. Files to open:
+[`CascadingAndGroupsTest.java`](../../erasmus-core/src/test/java/io/vidocq/erasmus/core/internal/CascadingAndGroupsTest.java) (the last test) next to [`ErasmusValidator.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/ErasmusValidator.java)
+at `evaluateConstraint` and its caller.*
 
-**Goal.** M2's finishing pass had already rewritten the constraint-evaluation path to
-recurse into composing constraints and collapse under `@ReportAsSingleViolation`
-(`evaluateConstraint` / `evaluateOwnValidator`). The question wasn't whether cascading and
-groups worked in isolation — the tests above already showed that — it was whether bolting
-them on top would silently break M2's composed-constraint behavior, since both features now
-share the exact same evaluation method.
+**First, the M2 feature this is about.** A *composed* constraint is a custom annotation that
+carries no validator of its own and is instead annotated with other constraints, which it
+then stands for. M2 built that, and this is one of its fixtures, in
+[`CustomConstraintAuthoringTest.java`](../../erasmus-core/src/test/java/io/vidocq/erasmus/core/internal/CustomConstraintAuthoringTest.java) — `@Username` is `@NotBlank` and
+`@Size(min = 3, max = 20)` under one name:
+
+```java
+@NotBlank
+@Size(min = 3, max = 20)
+@Constraint(validatedBy = {})      // no validator of its own
+@Target(ElementType.FIELD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Username { ... }
+
+private static final class Account {
+    @Username
+    private String username;
+}
+```
+
+Validating `new Account("")` reports **two** violations on `username`, one per failing
+composing constraint, and the engine gets there by recursing: evaluate `@Username`'s own
+validator (it has none), then evaluate each annotation on it. Add `@ReportAsSingleViolation`
+to the annotation and that same tree collapses into one violation carrying the composed
+annotation's own message — that is M2's other fixture, `@StrongPassword` on
+`Credentials.password`.
+
+**Goal — and no, this is not a recap.** M2 did all of that on *flat* beans, with no graph
+and no groups. M3 then threaded two new things through the very same method: a `leafBean`
+that is no longer the root, and a group gate. So the question this section answers is
+whether M2's behaviour survived that — and whether the three features actually work *in one
+call*: a composed constraint, declared in a group, on a property of a `@Valid`-cascaded
+bean. Nothing above tests that combination; `CustomConstraintAuthoringTest` tests
+composition without cascading, `CascadingAndGroupsTest` tests cascading without composition.
 
 **What was built.** Being precise about *where* each concern lives, rather than tangling
 them together:
@@ -1073,17 +1102,61 @@ private <T, A extends Annotation> List<ConstraintViolationImpl<T>> evaluateConst
 }
 ```
 
-For the violation the running example produces, those parameters carry: `rootBean` = the
-`Person`, `leafBean` = the `Address`, `propertyPath` = `address.city`, `value` = `""`. Swap
-`@NotBlank` for a composed constraint and the recursive call below passes that same `Address`
-and that same path down to each composing constraint — the leaf bean is the nested object, at
-every level of the composition.
+Reading that as parameters is still abstract, so here is the method actually running. The
+fixture is the running example with a composed constraint on it — `CityName` is `@NotBlank`
+plus `@Size(min = 2, max = 40)`, declared on the nested `Address` under `Strict`, behind a
+`@Valid`:
 
-The group check you saw in the groups section sits in the *caller*, one line above the call
-to this method — so a composed constraint is filtered exactly once, by its own `groups()`,
-and its composing constraints are never filtered again.
+```java
+@NotBlank
+@Size(min = 2, max = 40)
+@Constraint(validatedBy = {})
+public @interface CityName { ... }
 
-Only the first of those three is the spec's decision — [Jakarta Bean Validation 3.1, §3.3 *Constraint composition*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintsdefinitionimplementation-constraintcomposition):
+private static final class ComposedAddress {
+    @CityName(groups = Strict.class)
+    private String city;
+}
+
+private static final class PersonWithComposedAddress {
+    @Valid
+    private ComposedAddress address;
+}
+```
+
+I put a `System.out.println` at the head of `evaluateConstraint`, ran the test, and took it
+back out — these three lines are that print, on `validate(person, Strict.class)` with
+`city = ""`:
+
+```
+TRACE evaluateConstraint @CityName  rootBean=PersonWithComposedAddress@15cafec7 leafBean=ComposedAddress@531c311e path=address.city value="" ownValidators=0 composing=2
+TRACE evaluateConstraint @Size      rootBean=PersonWithComposedAddress@15cafec7 leafBean=ComposedAddress@531c311e path=address.city value="" ownValidators=4 composing=0
+TRACE evaluateConstraint @NotBlank  rootBean=PersonWithComposedAddress@15cafec7 leafBean=ComposedAddress@531c311e path=address.city value="" ownValidators=1 composing=0
+```
+
+Three calls, one per node of the composition tree, and every one of the three bullets above
+is readable in them:
+
+- **Line 1 is `@CityName` itself**: `ownValidators=0` (nothing to run — it is only a name for
+  two other constraints), `composing=2`, so the loop recurses twice. Lines 2 and 3 are those
+  two recursions, each with `composing=0`: leaves. `@Size` shows `ownValidators=4` because
+  `@Size` ships four validators, one per target type, and the resolver picks the
+  `CharSequence` one for a `String`.
+- **`rootBean` and `leafBean` differ, and stay differing all the way down.** The root is the
+  `Person` the caller passed to `validate`; the leaf is the `Address` the walk had reached
+  when it called in. Both recursive calls carry that same `Address@531c311e` — so a violation
+  from the innermost `@NotBlank` still reports `getLeafBean()` as the nested `Address`, which
+  is what the test asserts. Same for `path=address.city`: built once by the walk, passed down
+  unchanged.
+- **The group gate left no trace at all — which is the point.** `@CityName` is declared under
+  `Strict` and the composing `@NotBlank`/`@Size` declare no groups, so they sit in `Default`.
+  If each node were filtered on its own `groups()`, lines 2 and 3 would never have been
+  printed under a `Strict`-only call. They were. And the *first* half of the same test,
+  `validate(person)` under `Default`, prints **zero** TRACE lines: the caller's one check
+  rejected `@CityName` before `evaluateConstraint` was ever entered, and the whole subtree
+  went with it.
+
+That last bullet is the spec's rule, not our convenience — [Jakarta Bean Validation 3.1, §3.3 *Constraint composition*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintsdefinitionimplementation-constraintcomposition):
 
 > Groups from the main constraint annotation are inherited by the composing annotations. Any
 > groups definition on a composing annotation is ignored.
@@ -1094,18 +1167,54 @@ its graph walk or how it threads the leaf bean through its evaluation code. Wort
 clear about which is which: the first bullet is conformance, the second and third are
 design.
 
-**Proof.** Not a single new test — the existing ones, run *together*, sharing the same code
-path instead of just independently:
+**Proof.** The test behind that trace, asserting both halves — nothing under `Default`, both
+composing constraints under `Strict`, at the cascaded path, with the nested bean as leaf:
+
+```java
+@Test
+void composedConstraintOnCascadedProperty_inheritsGroupsAndReportsTheLeafBean() {
+    ComposedAddress address = new ComposedAddress("");
+    PersonWithComposedAddress person = new PersonWithComposedAddress(address);
+
+    assertTrue(validator.validate(person).isEmpty(),
+            "@CityName is declared under Strict only, so nothing fires under Default — "
+                    + "not even its Default-group composing constraints");
+
+    Set<ConstraintViolation<PersonWithComposedAddress>> violations = validator.validate(person, Strict.class);
+
+    assertEquals(2, violations.size(),
+            "both composing constraints fail on \"\": @NotBlank (blank) and @Size(min = 2) (length 0)");
+    for (ConstraintViolation<PersonWithComposedAddress> violation : violations) {
+        assertEquals("address.city", violation.getPropertyPath().toString());
+        assertSame(person, violation.getRootBean(), "root bean stays the Person");
+        assertSame(address, violation.getLeafBean(), "leaf bean is the nested Address, not the Person");
+    }
+}
+```
+
+A note on the red, because this one is different from every section above. This test does
+not go red on its parent commit — the behaviour it checks is a *property* of the two feature
+commits, which is why this section has no production diff. The honest baseline is the branch
+point, where cascading did not exist yet, and there it fails on the second half:
+
+```
+$ cd erasmus-core && ../mvnw -ntp test -Dtest=ComposedCascadeProbeTest        # on origin/main
+[ERROR] ComposedCascadeProbeTest.composedConstraintOnCascadedProperty_inheritsGroupsAndReportsTheLeafBean
+org.opentest4j.AssertionFailedError: both composing constraints fail on "": @NotBlank (blank) and @Size(min = 2) (length 0) ==> expected: <2> but was: <0>
+```
+
+Green on the branch, together with everything M2 and M3 built:
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test
-[INFO] Tests run: 87, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 88, Failures: 0, Errors: 0, Skipped: 0
 [INFO] BUILD SUCCESS
 ```
 
 `CustomConstraintAuthoringTest`'s composed constraints and `@ReportAsSingleViolation` cases
-pass alongside `CascadingAndGroupsTest`'s 11 — the actual proof that the split above was the
-right one, not just a plausible-sounding one.
+pass alongside `CascadingAndGroupsTest`'s 12 — and the new one is the single test that
+exercises all three mechanisms at once, instead of trusting that two green suites imply a
+green combination.
 
 ## Where it stands now
 
@@ -1116,9 +1225,10 @@ right one, not just a plausible-sounding one.
   inheritance expands correctly.
 - `@GroupSequence` short-circuits for the single-sequence-group case.
 - Composed constraints and `@ReportAsSingleViolation` (M2) still work, now combined with
-  cascading and groups in the same evaluation path — proven by running both test suites
-  together, not just each in isolation.
-- 87 tests total, all green. Full reactor build (`./mvnw -ntp clean install`) succeeds.
+  cascading and groups in the same evaluation path — with one test exercising all three at
+  once (a composed constraint, group-gated, on a cascaded bean's property), not just the two
+  suites passing side by side.
+- 88 tests total, all green. Full reactor build (`./mvnw -ntp clean install`) succeeds.
 - Two conformance bugs found by quoting the spec for this post, both logged in `BUG.md` and
   neither fixed here: `E-001`, `@NotBlank`/`@NotEmpty` accept `null` (they must not —
   [§8.20](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notempty) and [§8.21](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notblank) — an M1 convention that was wrong for these two);
@@ -1141,8 +1251,8 @@ gets closed, uniformly, instead of as a one-off.
 This series has a rule against talking about itself, and this section breaks it once, on
 purpose, because a rule of the series changed the outcome of the milestone.
 
-The spec quotes above were not in the first version of this post. The seven commits were
-done, the post was written, the proofs were green. Then I asked Claude for one more thing:
+The spec quotes above were not in the first version of this post. The milestone's commits
+were done, the post was written, the proofs were green. Then I asked Claude for one more thing:
 quote, in every section, the sentence of Bean Validation 3.1 the section implements —
 verbatim, with its section number, fetched from the actual text rather than recalled. To do
 that, Claude pulled the 3.1 HTML and read the relevant sections side by side with the code. Three things came

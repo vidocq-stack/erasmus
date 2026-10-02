@@ -19,7 +19,9 @@
  */
 package io.vidocq.erasmus.core.internal;
 
+import jakarta.validation.Constraint;
 import jakarta.validation.GroupSequence;
+import jakarta.validation.Payload;
 import jakarta.validation.Valid;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -30,11 +32,16 @@ import jakarta.validation.constraints.Size;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** ROADMAP M3: {@code @Valid} cascading, cycle detection, groups, and {@code @GroupSequence}. */
@@ -292,5 +299,65 @@ class CascadingAndGroupsTest {
         Set<ConstraintViolation<PersonWithStrictAddress>> violations = validator.validate(person, Strict.class);
         assertEquals(1, violations.size());
         assertEquals("address.city", violations.iterator().next().getPropertyPath().toString());
+    }
+
+    // --- Cascading + groups + M2's composed constraints, in one call ---
+
+    /**
+     * An M2-style composed constraint: no validator of its own, just two constraints it
+     * composes. Declared here under {@code Strict} only — the composing {@code @NotBlank}
+     * and {@code @Size} declare no groups at all, so they belong to {@code Default}, and the
+     * test below is what tells "inherit the main annotation's groups" (spec §3.3) apart from
+     * "filter each composing constraint on its own groups".
+     */
+    @NotBlank
+    @Size(min = 2, max = 40)
+    @Constraint(validatedBy = {})
+    @Target(ElementType.FIELD)
+    @Retention(RetentionPolicy.RUNTIME)
+    public @interface CityName {
+        String message() default "invalid city name";
+
+        Class<?>[] groups() default {};
+
+        Class<? extends Payload>[] payload() default {};
+    }
+
+    private static final class ComposedAddress {
+        @CityName(groups = Strict.class)
+        private String city;
+
+        ComposedAddress(String city) {
+            this.city = city;
+        }
+    }
+
+    private static final class PersonWithComposedAddress {
+        @Valid
+        private ComposedAddress address;
+
+        PersonWithComposedAddress(ComposedAddress address) {
+            this.address = address;
+        }
+    }
+
+    @Test
+    void composedConstraintOnCascadedProperty_inheritsGroupsAndReportsTheLeafBean() {
+        ComposedAddress address = new ComposedAddress("");
+        PersonWithComposedAddress person = new PersonWithComposedAddress(address);
+
+        assertTrue(validator.validate(person).isEmpty(),
+                "@CityName is declared under Strict only, so nothing fires under Default — "
+                        + "not even its Default-group composing constraints");
+
+        Set<ConstraintViolation<PersonWithComposedAddress>> violations = validator.validate(person, Strict.class);
+
+        assertEquals(2, violations.size(),
+                "both composing constraints fail on \"\": @NotBlank (blank) and @Size(min = 2) (length 0)");
+        for (ConstraintViolation<PersonWithComposedAddress> violation : violations) {
+            assertEquals("address.city", violation.getPropertyPath().toString());
+            assertSame(person, violation.getRootBean(), "root bean stays the Person");
+            assertSame(address, violation.getLeafBean(), "leaf bean is the nested Address, not the Person");
+        }
     }
 }

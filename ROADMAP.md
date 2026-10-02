@@ -166,11 +166,11 @@ to `assertTrueConstraint()`/`assertFalseConstraint()` to sidestep it.
 | `Default` group + explicit groups | `validate(bean, Group1.class, Group2.class)` — a `ConstraintDescriptorImpl` now actually reads the constraint annotation's `groups()` attribute (was hardcoded to `Set.of(Default.class)` since M1) instead of ignoring it. | ✅ |
 | Group inheritance | `GroupsSupport.expand(group)` walks `Class.getInterfaces()` recursively — a group interface extending others pulls in the supers automatically. | ✅ |
 | `@GroupSequence` | Short-circuits correctly **for the common case**: a single requested group that is itself `@GroupSequence`-annotated expands into its groups, processed one at a time in the declared order, stopping at the first with any violation. **Deliberate scope gap**: mixing a sequence group with other, unrelated groups in the same `validate(...)` call collapses everything into one unordered entry instead of correctly interleaving the sequence's short-circuit with the other groups — rare in practice (most real calls pass either `Default` or a single custom sequence), documented rather than silently wrong. | ✅ (narrowed scope) |
-| Integration tests | `CascadingAndGroupsTest`: nested cascading with dotted paths, null/absent-`@Valid` non-cascading, a circular two-node graph, a self-referencing node, `Default` vs. explicit group, group inheritance, both directions of `@GroupSequence` short-circuiting (fails at first group / passes through to the second), and a mixed cascading+groups case (a cascaded property whose own constraint is group-gated). 11 tests. | ✅ |
+| Integration tests | `CascadingAndGroupsTest`: nested cascading with dotted paths, null/absent-`@Valid` non-cascading, a circular two-node graph, a self-referencing node, `Default` vs. explicit group, group inheritance, both directions of `@GroupSequence` short-circuiting (fails at first group / passes through to the second), a mixed cascading+groups case (a cascaded property whose own constraint is group-gated), and an all-three case (an M2 composed constraint, declared in a group, on a property of a cascaded bean — asserting the dotted path, the leaf bean, and that the composing constraints inherit the main annotation's groups per §3.3). 12 tests. | ✅ |
 
 **Deliverable:** cascaded validation across arbitrary (including circular) object graphs for
 single bean references, correct group-sequence short-circuiting for the single-sequence-group
-case. 87 tests total (up from 76), all green.
+case. 88 tests total (up from 76), all green.
 
 ---
 
