@@ -104,6 +104,15 @@ Concretely, for each example:
   in one sentence (§5.4: "Groups are represented by interfaces"), so quote that rather than
   paraphrasing — and check the sentences *around* the one being quoted, which is where that
   definition was hiding.
+- **Don't invent a word for something the spec already names.** Twice in one section I
+  coined vocabulary — "sheet" for a set of groups processed together, then "step" for the
+  same thing — and each time the first reader stopped there. The spec says a sequence orders
+  *groups*; there was never a third kind of thing to name. Before introducing a term, check
+  whether the spec sentence you are about to quote already contains it, and if you still need
+  a name of your own, say so explicitly ("a name of ours, not the spec's").
+- **Keep fixture names honest about what they are.** `StepOne`/`StepTwo` as the groups of a
+  sequence taught the wrong model: they are groups, usable on their own, and being listed in
+  a `@GroupSequence` is something done *to* them. Renamed `FirstGroup`/`SecondGroup`.
 - **Don't open a section on an abstract definition.** "A call evaluates an ordered list of
   sets of groups, stopping at the first…" is a sentence you can only understand once you
   already know the answer. Open on the code the reader can run or point at, and let the

@@ -313,7 +313,7 @@ yet to even attempt the recursion, but proof the two-node case wasn't handled.
 on the way in. Before looking at a bean, `validateGraph` tries to add it to that set; if it
 was already there, this path has looped back on itself, and the walk stops right there
 instead of descending again. In this commit, there is one such set per `validate()` call; the
-`@GroupSequence` commit later narrows that to one per *step* (explained there):
+`@GroupSequence` commit later narrows that to one per processed group (explained there):
 
 ```java
 private <T> void validateGraph(..., Set<Object> visited, ...) {
@@ -345,7 +345,7 @@ never a field, never static, never a `ThreadLocal`:
 
 ```java
 Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-validateGraph(object, beanClass, object, step, null, visited, stepViolations);
+validateGraph(object, beanClass, object, effectiveGroups, null, visited, violations);
 ```
 
 Why identity rather than `equals()`, on that same ring: `a` and `b` are two distinct `Node`s
@@ -447,7 +447,12 @@ and matching those two up is the whole feature.
 
 So: `validate(bean, SomeGroup.class)` should only evaluate constraints declared under
 `SomeGroup` (or under it via inheritance), not every constraint on the bean regardless of
-what was requested. For the call site, [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups): "If no group is passed, the `Default` group is assumed."
+what was requested. And the call site has its own default, [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups):
+
+> Groups allow you to restrict the set of constraints applied during validation. Groups
+> targeted are passed as parameters to the `validate()`, `validateProperty()` and
+> `validateValue()` methods [...] If no group is passed, the `Default` group is assumed.
+
 Two tests pin this down: one confirming the *default* call still only
 sees `Default`-group constraints, one confirming an *explicit* group call only sees that
 group's. One fixture serves both, and the whole point is that it carries **exactly two
@@ -690,10 +695,18 @@ constraints fire:
 `[]` on one side, `[sku, ean]` on the other, `[sku]` wanted: only an implementation that walks
 up the interface hierarchy — and stops there — lands in between.
 
-**What was built.** `expand` collects a group and everything it extends, recursively, and
-`resolve` runs every requested group through it before `intersects` ever sees the list:
+**What was built.** Every requested group now goes through `expand` before anything else
+looks at it — that is the one new call in the resolution path, and `collect` is just its
+recursive half:
 
 ```java
+/** A group plus every group interface it extends, recursively. */
+private static Set<Class<?>> expand(Class<?> group) {
+    Set<Class<?>> expanded = new LinkedHashSet<>();
+    collect(group, expanded);
+    return expanded;
+}
+
 private static void collect(Class<?> group, Set<Class<?>> into) {
     if (!into.add(group)) {
         return;
@@ -704,7 +717,8 @@ private static void collect(Class<?> group, Set<Class<?>> into) {
 }
 ```
 
-On this fixture:
+Where the previous commit put the requested groups straight into the list `intersects` checks
+against, they now arrive expanded. On this fixture:
 
 ```
 expand(ExtendedGroup)     ->  {ExtendedGroup, BaseGroup}
@@ -728,46 +742,53 @@ Worth keeping the first version of this section in mind, though, because the les
 it: a green test is not evidence until you know it can go red. This one only earned its place
 once the fixture gained a second constraint that had to stay silent.
 
-## `@GroupSequence`: stopping at the first failing step
+## `@GroupSequence`: stopping at the first failing group
 
-*Commit `feat(m3): @GroupSequence -- stop at the first failing step`. Files to open: [`GroupsSupport.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/GroupsSupport.java)
-(`resolve` becomes `resolveSteps`) and [`ErasmusValidator.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/ErasmusValidator.java) (the per-step loop at the top of
+*Commit `feat(m3): @GroupSequence -- stop at the first failing group`. Files to open: [`GroupsSupport.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/GroupsSupport.java)
+(`resolve` becomes `resolveOrderedGroups`) and [`ErasmusValidator.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/ErasmusValidator.java) (the per-group loop at the top of
 `validate`, `validateProperty`, `validateValue`).*
 
 **Goal.** `validate(bean, OrderedSequence.class)`, where `OrderedSequence` is
-`@GroupSequence({StepOne.class, StepTwo.class})`, should evaluate `StepOne`'s constraints
-first and, if any fail, never even look at `StepTwo`'s — [Jakarta Bean Validation 3.1, §5.4.2 *Group sequence*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-groupsequence-groupsequence):
+`@GroupSequence({FirstGroup.class, SecondGroup.class})`, should evaluate `FirstGroup`'s constraints
+first and, if any fail, never even look at `SecondGroup`'s — [Jakarta Bean Validation 3.1, §5.4.2 *Group sequence*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-groupsequence-groupsequence):
 
 > Each group in a group sequence must be processed sequentially in the order defined by
 > `@GroupSequence.value` when the group defined as a sequence is requested. [...] if one of
 > the groups processed in the sequence generates one or more constraint violations, the groups
 > following in the sequence must not be processed.
 
-The fixture: two step groups, a sequence over them, and a `Form` with one `@NotBlank` per
-step:
+Read that sentence closely, because it settles the vocabulary: what a sequence orders is
+**groups**. There is no third kind of thing here — `FirstGroup` and `SecondGroup` below are
+groups exactly like `Strict` was, interfaces used as labels. Being listed in a
+`@GroupSequence` is not a property of theirs, it is something the sequence does with them:
+either could be requested on its own, `validate(form, FirstGroup.class)`, and nothing about
+it would change.
+
+The fixture: two groups, a sequence over them, and a `Form` with one `@NotBlank` per
+group:
 
 ```java
-private interface StepOne {
+private interface FirstGroup {
 }
 
-private interface StepTwo {
+private interface SecondGroup {
 }
 
-@GroupSequence({StepOne.class, StepTwo.class})
+@GroupSequence({FirstGroup.class, SecondGroup.class})
 private interface OrderedSequence {
 }
 
 private static final class Form {
-    @NotBlank(groups = StepOne.class)
+    @NotBlank(groups = FirstGroup.class)
     private String field1;
 
-    @NotBlank(groups = StepTwo.class)
+    @NotBlank(groups = SecondGroup.class)
     private String field2;
 }
 ```
 
-Both fields blank, so both steps *would* fail if evaluated. The test asks for exactly one
-violation, on `field1` — `StepTwo` must never have run:
+Both fields blank, so both groups *would* fail if both were processed. The test asks for
+exactly one violation, on `field1` — `SecondGroup` must never have run:
 
 ```java
 @Test
@@ -786,65 +807,71 @@ $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
 [ERROR]   CascadingAndGroupsTest.groupSequence_stopsAtFirstFailingGroup:222 expected: <1> but was: <2>
 ```
 
-Both steps' violations came back, because — same root cause as plain groups above —
+Both groups' violations came back, because — same root cause as plain groups above —
 nothing was filtering by group yet, sequence or not.
 
-**What was built.** Start where the call lands, at the top of `validate()` — this is the
-whole mechanism, and `resolveSteps` is the only new name in it:
+**What was built.** Start where the call lands, at the top of `validate()`. One new call in
+it, `resolveOrderedGroups` — a name of ours, not the spec's: the spec has no API to name
+here, only the requirement that groups be "processed sequentially":
 
 ```java
-for (List<Class<?>> step : GroupsSupport.resolveSteps(groups)) {
-    Set<ConstraintViolation<T>> stepViolations = new LinkedHashSet<>();
+for (List<Class<?>> effectiveGroups : GroupsSupport.resolveOrderedGroups(groups)) {
+    Set<ConstraintViolation<T>> violations = new LinkedHashSet<>();
     Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-    validateGraph(object, beanClass, object, step, null, visited, stepViolations);
-    if (!stepViolations.isEmpty()) {
-        return stepViolations;   // short-circuit: later steps are never evaluated
+    validateGraph(object, beanClass, object, effectiveGroups, null, visited, violations);
+    if (!violations.isEmpty()) {
+        return violations;   // short-circuit: the groups after this one are never processed
     }
 }
 return Set.of();
 ```
 
 `validate(bean, groups...)` used to walk the graph once, for the groups it was given. It now
-asks `resolveSteps` to turn those groups into a *list*, and walks the graph once **per
-element of that list**, returning at the first element that produces a violation. One element
-of that list is what the rest of this section calls a **step**: a set of groups evaluated
-together, in one pass over the graph. The word is the spec's, from §5.4.2 — "each group in a
-group sequence must be processed sequentially".
+asks for those groups *in processing order* and walks the graph once per entry, returning at
+the first entry that produces a violation. An entry is a `List<Class<?>>` rather than a plain
+`Class<?>` for one reason: inheritance. `ExtendedGroup` drags `BaseGroup` in with it and both
+have to be matched against, so one group on the page is a small set of interfaces in the
+code — the `effectiveGroups` that `validateGraph` and `intersects` have been taking since the
+previous two sections.
 
-Everything therefore depends on how long that list is. Here is what `resolveSteps` hands back
-for the four calls this post has already made — read these as "how many times the loop above
-will run, and with what":
+Everything therefore depends on how long that outer list is. Here is what
+`resolveOrderedGroups` hands back for the four calls this post has already made — read them
+as "how many times does the loop above run, and against which groups":
 
 ```
-validate(account)                       ->  [[Default]]              one step: loop runs once
-validate(account, Strict.class)         ->  [[Strict]]               one step: loop runs once
-validate(item, ExtendedGroup.class)     ->  [[ExtendedGroup,         one step: loop runs once,
-                                              BaseGroup]]            inheritance expanded into it
-validate(form, OrderedSequence.class)   ->  [[StepOne], [StepTwo]]   two steps: loop can stop
-                                                                     after the first
+validate(account)                       ->  [[Default]]                 runs once
+validate(account, Strict.class)         ->  [[Strict]]                  runs once
+validate(item, ExtendedGroup.class)     ->  [[ExtendedGroup,            runs once, against a
+                                              BaseGroup]]               group and its super
+validate(form, OrderedSequence.class)   ->  [[FirstGroup],              runs up to twice, and
+                                             [SecondGroup]]             can stop after the first
 ```
 
-The first three are one-element lists, so the loop body runs exactly once and the
-`return stepViolations` is just "return what that single pass found" — the behaviour of the
-previous three sections, unchanged. Only a sequence produces more than one element, and only
-then does stopping early mean anything.
+Only the last call has more than one entry, so only there does stopping early mean anything;
+for the other three the loop body runs exactly once and the early `return` is simply "return
+what that single pass found" — the behaviour of the previous three sections, unchanged.
+
+Merging several requested groups into a single entry is not a shortcut we took, incidentally:
+§6.1.3 says that passing several groups "is equivalent to the validation of a group G
+inheriting all groups (i.e. implementing all interfaces) passed to the validation method".
+One entry *is* one group, even when it stands for several.
 
 And here is how that list gets built, the two branches matching the two shapes above:
 
 ```java
-static List<List<Class<?>>> resolveSteps(Class<?>[] requestedGroups) {
+static List<List<Class<?>>> resolveOrderedGroups(Class<?>[] requestedGroups) {
     Class<?>[] groups = requestedGroups.length == 0 ? new Class<?>[] {Default.class} : requestedGroups;
 
-    // a sequence: one step per group it lists, in the declared order
+    // a sequence: its groups, in the order it declares them
     if (groups.length == 1 && groups[0].isAnnotationPresent(GroupSequence.class)) {
-        List<List<Class<?>>> steps = new ArrayList<>();
+        List<List<Class<?>>> ordered = new ArrayList<>();
         for (Class<?> sequencedGroup : groups[0].getAnnotation(GroupSequence.class).value()) {
-            steps.add(List.copyOf(expand(sequencedGroup)));
+            ordered.add(List.copyOf(expand(sequencedGroup)));
         }
-        return List.copyOf(steps);
+        return List.copyOf(ordered);
     }
 
-    // anything else: everything asked for, expanded, as one single step
+    // anything else: everything asked for, expanded, as one entry
     Set<Class<?>> merged = new LinkedHashSet<>();
     for (Class<?> group : groups) {
         merged.addAll(expand(group));
@@ -855,20 +882,21 @@ static List<List<Class<?>>> resolveSteps(Class<?>[] requestedGroups) {
 
 The bottom half is what the previous two sections already relied on, now wrapped in a
 one-element list: every requested group, expanded with its super-interfaces, merged into one
-step. The top half is the new part. Note also the `visited` set in the loop: it is created
-inside the loop body, so each step gets a fresh one — the narrowing the cycle-detection
-section promised, since revisiting a bean under a later, independent step is not a cycle.
+entry. The top half is the new part. Note also the `visited` set in the loop: it is created
+inside the loop body, so each processed group gets a fresh one — the narrowing the
+cycle-detection section promised, since revisiting a bean under a later, independent group is
+not a cycle.
 
-On `new Form("", "")` — both fields blank, so both steps would fail if both were evaluated —
-`validate(form, OrderedSequence.class)` runs step `[StepOne]`, gets the `field1` violation,
+On `new Form("", "")` — both fields blank, so both groups would fail if both were processed —
+`validate(form, OrderedSequence.class)` processes `FirstGroup`, gets the `field1` violation,
 and returns right there: `field2` is never looked at, and the caller sees one violation, not
-two. Fix `field1` only and the first step comes back empty, so the loop moves on to
-`[StepTwo]` and reports `field2`. Those are precisely the two tests below.
+two. Fix `field1` only and the first group comes back clean, so the loop moves on to
+`SecondGroup` and reports `field2`. Those are precisely the two tests below.
 
 `validateProperty` and `validateValue` get the same loop around their single-property check.
 
-**Proof.** Both directions — stopping at the first failing step, and passing through when
-the first step is clean:
+**Proof.** Both directions — stopping at the first failing group, and passing through when
+the first group is clean:
 
 ```
 $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest#groupSequence_stopsAtFirstFailingGroup+groupSequence_proceedsToSecondGroupWhenFirstPasses
@@ -878,18 +906,18 @@ $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest#groupSequen
 
 Small aside, the same trap as the first group-inheritance test: the "proceeds to the second group"
 direction of this pair also happened to already read correctly before sequences existed —
-with `StepOne` passing and only `StepTwo` failing, "run everything unconditionally" and
+with `FirstGroup` passing and only `SecondGroup` failing, "run everything unconditionally" and
 "stop at the first failure, then check the next" land on the same single violation. Only the
-"stops at the first *failing* step" direction (both steps would fail if evaluated) could
+"stops at the first *failing* group" direction (both would fail if both were processed) could
 actually tell the two implementations apart, which is why that's the one quoted as red above.
 
 **Deliberate scope gap, documented rather than silently wrong** — and quoting the spec
-actually shrinks it. Several *plain* groups in one call collapsing into one unordered step is
+actually shrinks it. Several *plain* groups in one call collapsing into one entry is
 not a gap at all; it is what [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups) prescribes: "When more than one group is evaluated
 and passed to the various validate methods, order is not constrained. It is equivalent to the
 validation of a group G inheriting all groups". The gap is narrower: when one of several
 requested groups is *itself* a sequence, §5.4.2 says "each composed group must respect the
-sequence order as well", and we flatten it into one step instead. Rare in practice (most real calls pass
+sequence order as well", and we flatten it into one entry instead. Rare in practice (most real calls pass
 either `Default` or one custom sequence), but a real divergence, not an oversight.
 
 ## Putting cascading and groups together
