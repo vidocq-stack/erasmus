@@ -97,6 +97,13 @@ Concretely, for each example:
   call: the method the user invokes, then what it asks for, then how that is built. A new
   helper introduced by its own signature, before anyone calls it, reads as a definition out
   of context.
+- **Say what kind of thing a spec concept is, at its first real use.** A post is read by
+  someone who does not know the spec: "a group is an interface, used purely as a label — no
+  methods, never instantiated" has to come before `groups = Strict.class` appears, and the
+  declaration of `Strict` has to be on screen rather than assumed. The spec usually says it
+  in one sentence (§5.4: "Groups are represented by interfaces"), so quote that rather than
+  paraphrasing — and check the sentences *around* the one being quoted, which is where that
+  definition was hiding.
 - **Don't open a section on an abstract definition.** "A call evaluates an ordered list of
   sets of groups, stopping at the first…" is a sentence you can only understand once you
   already know the answer. Open on the code the reader can run or point at, and let the

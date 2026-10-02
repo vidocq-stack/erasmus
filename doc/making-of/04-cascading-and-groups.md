@@ -423,20 +423,40 @@ cascading test keeps `new Address("")`, a violation under both readings.
 open: [`ConstraintDescriptorImpl.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/metadata/ConstraintDescriptorImpl.java) (`getGroups`), [`GroupsSupport.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/GroupsSupport.java) (new), [`ErasmusValidator.java`](../../erasmus-core/src/main/java/io/vidocq/erasmus/core/internal/ErasmusValidator.java) (the `intersects` check in
 `validateGraph` and `validatePropertyConstraints`), and the test.*
 
-**Goal.** `validate(bean, SomeGroup.class)` should only evaluate constraints declared under
-`SomeGroup` (or under it via inheritance) — not every constraint on the bean regardless of
-what was requested. Both halves are spelled out — [Jakarta Bean Validation 3.1, §5.4 *Group and group sequence*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-groupsequence):
+**Goal.** First, what a group even is, since this is the section where they appear and the
+answer is less than obvious: a group is **an interface**, used purely as a label. No methods,
+no implementations, never instantiated — it exists so that constraints and `validate` calls
+can name the same thing. [Jakarta Bean Validation 3.1, §5.4 *Group and group sequence*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-groupsequence):
 
-> Each constraint declaration defines the list of groups it belongs to. If no group is
-> explicitly declared, a constraint belongs to the `Default` group.
+> A group defines a subset of constraints. Instead of validating all constraints for a given
+> object graph, only a subset is validated. [...] Each constraint declaration defines the list
+> of groups it belongs to. If no group is explicitly declared, a constraint belongs to the
+> `Default` group. Groups are represented by interfaces.
 
-and, for the call site, [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups): "If no group is passed, the `Default` group is assumed."
+`Default` is one of those interfaces, `jakarta.validation.groups.Default`, shipped by the
+spec. The ones in this post we declare ourselves, and they are as empty as they look:
+
+```java
+private interface Strict {
+}
+```
+
+That is the entire declaration. `Strict.class` then appears in two places — in a constraint,
+saying which subset it belongs to, and in a `validate` call, saying which subset to check —
+and matching those two up is the whole feature.
+
+So: `validate(bean, SomeGroup.class)` should only evaluate constraints declared under
+`SomeGroup` (or under it via inheritance), not every constraint on the bean regardless of
+what was requested. For the call site, [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups): "If no group is passed, the `Default` group is assumed."
 Two tests pin this down: one confirming the *default* call still only
 sees `Default`-group constraints, one confirming an *explicit* group call only sees that
 group's. One fixture serves both, and the whole point is that it carries **exactly two
 constraints, in two different groups, and violates both at once**:
 
 ```java
+private interface Strict {
+}
+
 private static final class Account {
     @NotBlank                                   // no groups() declared -> Default group
     private String username;
