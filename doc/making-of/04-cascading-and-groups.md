@@ -367,13 +367,20 @@ finds it already visited, and stops. Two violations (`a`'s own and `b`'s, reache
 `next.name`), not an infinite one. The self-referencing case (`self.next = self`) is the
 same mechanism with the cycle one hop shorter.
 
-One honest gap against the spec text, though. §5.7.1 scopes the rule to the *current
-navigation path* and adds that "the complete validated object graph can" contain the same
-instance more than once — meaning an `Address` shared by `@Valid home` and `@Valid work`
-should be reported twice, once per path. Our visited set lives for the whole call, so it is
-reported once, under the first path. Terminates the same, differs on that edge; logged as
-`E-002` in [`BUG.md`](../../BUG.md), a small fix kept out of this branch so the commits stay
-readable.
+One honest gap against the spec text, though, and it sits in the two sentences that follow
+the one quoted above — [Jakarta Bean Validation 3.1, §5.7.1 *Object graph validation*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-validationroutine-graphvalidation):
+
+> A navigation path is defined as a set of `@Valid` associations starting from the root
+> object instance and reaching the associated instance. A given navigation path cannot
+> contain the same instance multiple times (the complete validated object graph can though).
+
+Read the parenthesis: the ban is on repeating an instance within one *path*, not within the
+whole call. So an `Address` that a `Person` points at twice, once through `@Valid home` and
+once through `@Valid work`, sits on two different paths and must be validated — and reported
+— twice, as `home.city` and `work.city`. Our visited set lives for the whole call, so the
+second path finds it already in the set and skips it: one violation, under the first path.
+Termination is the same either way, the reported violations are not; logged as `E-002` in
+[`BUG.md`](../../BUG.md), a small fix kept out of this branch so the commits stay readable.
 
 ## A gotcha, found by quoting the spec: `@NotBlank` and `null` — the test was right
 
@@ -401,13 +408,19 @@ returns `true` — valid, no violation, the zero I was staring at. `new Address(
 `strip().isEmpty()`, returns `false`, and the violation on `address.city` appears.
 
 Going to the spec to quote it for this post is what turned that around. The convention is
-real for most constraints — [§8.13 `@Size`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-size): "`null` elements are considered valid" — but not for
-these two:
+real for most constraints — [Jakarta Bean Validation 3.1, §8.13 `@Size`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-size):
 
-> [§8.21 `@NotBlank`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notblank): The annotated element must not be `null` and must contain at least one
-> non-whitespace character.
->
-> [§8.20 `@NotEmpty`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notempty): The annotated element must not be `null` nor empty.
+> `null` elements are considered valid.
+
+But the two constraints whose whole job is to reject emptiness say the opposite, in their own
+first sentence — [§8.21 `@NotBlank`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notblank):
+
+> The annotated element must not be `null` and must contain at least one non-whitespace
+> character. Accepts `CharSequence`.
+
+and [§8.20 `@NotEmpty`](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notempty):
+
+> The annotated element must not be `null` nor empty.
 
 So the original test was right and the validator is wrong: a `null` city under `@NotBlank`
 *is* a violation, and so is a `null` list under `@NotEmpty`. Erasmus's `NotBlankValidator` and
@@ -851,10 +864,16 @@ Only the last call has more than one entry, so only there does stopping early me
 for the other three the loop body runs exactly once and the early `return` is simply "return
 what that single pass found" — the behaviour of the previous three sections, unchanged.
 
-Merging several requested groups into a single entry is not a shortcut we took, incidentally:
-§6.1.3 says that passing several groups "is equivalent to the validation of a group G
-inheriting all groups (i.e. implementing all interfaces) passed to the validation method".
-One entry *is* one group, even when it stands for several.
+Merging several requested groups into a single entry is not a shortcut we took, incidentally
+— [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups):
+
+> When more than one group is evaluated and passed to the various validate methods, order is
+> not constrained. It is equivalent to the validation of a group G inheriting all groups
+> (i.e. implementing all interfaces) passed to the validation method.
+
+One entry *is* one group, even when it stands for several — which is exactly the third line
+of the table: `[[ExtendedGroup, BaseGroup]]` is one entry holding two interfaces, the spec's
+group G, and the loop body runs once against it.
 
 And here is how that list gets built, the two branches matching the two shapes above:
 
@@ -913,12 +932,20 @@ actually tell the two implementations apart, which is why that's the one quoted 
 
 **Deliberate scope gap, documented rather than silently wrong** — and quoting the spec
 actually shrinks it. Several *plain* groups in one call collapsing into one entry is
-not a gap at all; it is what [Jakarta Bean Validation 3.1, §6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups) prescribes: "When more than one group is evaluated
-and passed to the various validate methods, order is not constrained. It is equivalent to the
-validation of a group G inheriting all groups". The gap is narrower: when one of several
-requested groups is *itself* a sequence, §5.4.2 says "each composed group must respect the
-sequence order as well", and we flatten it into one entry instead. Rare in practice (most real calls pass
-either `Default` or one custom sequence), but a real divergence, not an oversight.
+not a gap at all; it is what [§6.1.3 *groups*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups) prescribes, quoted earlier in this
+section: order is not constrained between several plain groups, and the call is equivalent to
+validating a single group inheriting all of them. The gap is narrower, and it is in
+[Jakarta Bean Validation 3.1, §5.4.2 *Group sequence*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-groupsequence-groupsequence):
+
+> Note that a group member of a sequence can itself be composed of several groups via
+> inheritance or sequence definition. In this case, each composed group must respect the
+> sequence order as well.
+
+So a call passing a sequence *and* a plain group — `validate(form, OrderedSequence.class,
+Strict.class)`, which no test in this post makes — should interleave `Strict` with the
+sequence's own ordering rather than merge it in; we flatten the whole thing into one entry
+instead. Rare in practice (most real calls pass either `Default` or one custom sequence), but
+a real divergence, not an oversight.
 
 ## Putting cascading and groups together
 
@@ -927,10 +954,15 @@ either `Default` or one custom sequence), but a real divergence, not an oversigh
 
 **Goal.** The two mechanisms above were built and tested mostly independently — the real
 question is whether they compose: does a cascaded property's own constraint still respect
-the group that was requested at the *root* `validate()` call? The spec answers in one line,
-[Jakarta Bean Validation 3.1, §5.7.1 *Object graph validation*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-validationroutine-graphvalidation): "`@Valid` is an orthogonal concept to the notion of group. If two groups are in
-sequence, the first group must pass for all associated objects before the second group is
-evaluated." Orthogonal, so the requested groups travel down the graph unchanged.
+the group that was requested at the *root* `validate()` call? The spec answers in one line —
+[Jakarta Bean Validation 3.1, §5.7.1 *Object graph validation*](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-validationroutine-graphvalidation):
+
+> `@Valid` is an orthogonal concept to the notion of group. If two groups are in sequence,
+> the first group must pass for all associated objects before the second group is evaluated.
+
+Orthogonal, so the requested groups travel down the graph unchanged: ask for `Strict` on a
+`Person` and the `@Valid Address` underneath it is checked under `Strict` too, not under
+`Default`.
 
 `StrictAddress` is `Address` with its one constraint moved into the `Strict` group, behind a
 `@Valid`:
@@ -1088,9 +1120,10 @@ right one, not just a plausible-sounding one.
   together, not just each in isolation.
 - 87 tests total, all green. Full reactor build (`./mvnw -ntp clean install`) succeeds.
 - Two conformance bugs found by quoting the spec for this post, both logged in `BUG.md` and
-  neither fixed here: `E-001`, `@NotBlank`/`@NotEmpty` accept `null` (they must not, §8.20 and
-  §8.21 — an M1 convention that was wrong for these two); `E-002`, cycle detection scoped to
-  the whole call instead of the current navigation path (§5.7.1).
+  neither fixed here: `E-001`, `@NotBlank`/`@NotEmpty` accept `null` (they must not —
+  [§8.20](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notempty) and [§8.21](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notblank) — an M1 convention that was wrong for these two);
+  `E-002`, cycle detection scoped to the whole call instead of the current navigation path
+  ([§5.7.1](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-validationroutine-graphvalidation)).
 - Deliberate scope gaps, documented in `ROADMAP.md`: cascading into collection/array/map
   elements is M4's job (the `ValueExtractor` SPI milestone exists precisely to solve
   container traversal uniformly); mixing a `@GroupSequence` with other unrelated groups in
@@ -1115,17 +1148,18 @@ verbatim, with its section number, fetched from the actual text rather than reca
 that, Claude pulled the 3.1 HTML and read the relevant sections side by side with the code. Three things came
 out of that reading that nothing before it had caught:
 
-- **`@NotBlank` and `@NotEmpty` were wrong since M1** (`E-001`). §8.21 and §8.20 say "must
-  not be `null`"; our convention said every validator but `@NotNull` accepts `null`, the
+- **`@NotBlank` and `@NotEmpty` were wrong since M1** (`E-001`). [§8.21](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notblank) and
+  [§8.20](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#builtinconstraints-notempty) both open on "must not be `null`"; our convention said every validator but
+  `@NotNull` accepts `null`, the
   validators did exactly that, and unit tests pinned the wrong behavior down for two
   milestones. The gotcha section of this very post had blamed the *test* for expecting a
   violation on `null`. The test was right.
-- **Cycle detection diverges from §5.7.1** (`E-002`). The spec scopes "already validated" to
+- **Cycle detection diverges from [§5.7.1](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#constraintdeclarationvalidationprocess-validationroutine-graphvalidation)** (`E-002`). The spec scopes "already validated" to
   the current navigation path; ours is scoped to the whole call. Same termination, different
   answer for an instance shared by two `@Valid` properties. Neither `ROADMAP.md` nor the
   first version of this post noticed — both described what I *meant* to build.
 - **A documented gap was half imaginary.** Flattening several plain groups into one unordered
-  set is what §6.1.3 prescribes, not a shortcut we took. The real gap is narrower than the
+  set is what [§6.1.3](https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#validationapi-validatorapi-groups) prescribes, not a shortcut we took. The real gap is narrower than the
   one we had written up.
 
 Why did this catch what TDD and the roadmap didn't? Because the tests encode what I believed

@@ -70,6 +70,15 @@ One or two normative sentences per point, verbatim, fetched from the actual text
 quoted from memory: a misremembered section number or paraphrase presented as a quote is
 worse than no quote.
 
+**Always the same shape, everywhere in the post**: a lead-in sentence ending on the linked
+reference, a colon, then the quote as a `>` blockquote on its own. Not an inline
+`"fragment"` dropped mid-paragraph, and not a bare `§5.7.1` with no link — including in the
+closing sections and in back-references to a quote made earlier, where a reader arriving by
+anchor has no idea which sentence is meant. An inline fragment also quietly invites
+trimming the sentence down to the part that suits the argument; a blockquote keeps the
+whole sentence on screen, which is where `E-002` was hiding — in the clause *after* the one
+first quoted.
+
 That closes the chain spec → ROADMAP → commit → test, and it earns its keep in three places:
 
 - **Narrowed scope**: when the spec asks for more than the milestone did (cascading into
@@ -92,7 +101,7 @@ Concretely, for each example:
 - Quote the real code from the actual source file (constraint/validator/annotation and the
   test method), copy-pasted, not paraphrased or simplified into pseudo-code.
 - **Show the caller before the callee, and never a return value whose consumer is off
-  screen.** A table of "what `resolveSteps` returns" means nothing until the loop that
+  screen.** A table of "what `resolveOrderedGroups` returns" means nothing until the loop that
   iterates it has been shown — the reader has no idea what the shape is *for*. Follow the
   call: the method the user invokes, then what it asks for, then how that is built. A new
   helper introduced by its own signature, before anyone calls it, reads as a definition out
