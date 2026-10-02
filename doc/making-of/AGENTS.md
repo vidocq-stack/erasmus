@@ -91,6 +91,16 @@ Concretely, for each example:
 
 - Quote the real code from the actual source file (constraint/validator/annotation and the
   test method), copy-pasted, not paraphrased or simplified into pseudo-code.
+- **Show the caller before the callee, and never a return value whose consumer is off
+  screen.** A table of "what `resolveSteps` returns" means nothing until the loop that
+  iterates it has been shown — the reader has no idea what the shape is *for*. Follow the
+  call: the method the user invokes, then what it asks for, then how that is built. A new
+  helper introduced by its own signature, before anyone calls it, reads as a definition out
+  of context.
+- **Don't open a section on an abstract definition.** "A call evaluates an ordered list of
+  sets of groups, stopping at the first…" is a sentence you can only understand once you
+  already know the answer. Open on the code the reader can run or point at, and let the
+  vocabulary fall out of it — define the word *after* the thing it names is on screen.
 - **Never show a snippet of engine code without an instance behind it.** A method, a record,
   a loop on its own is a definition; followed by "on `Account`, this gives…" it becomes an
   explanation. Trace what the code returns for a real bean: what the record holds, which

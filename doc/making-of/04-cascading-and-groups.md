@@ -769,19 +769,47 @@ $ cd erasmus-core && ../mvnw -ntp test -Dtest=CascadingAndGroupsTest
 Both steps' violations came back, because — same root cause as plain groups above —
 nothing was filtering by group yet, sequence or not.
 
-**What was built.** One idea, and everything else follows from it: a `validate(...)` call
-does not evaluate *one* set of groups, it evaluates an ordered *list* of sets, one after
-another, and stops as soon as one of them produces a violation. Call each element of that
-list a **step** — the spec's own word for what a sequence is made of ("each group in a group
-sequence must be processed sequentially").
+**What was built.** Start where the call lands, at the top of `validate()` — this is the
+whole mechanism, and `resolveSteps` is the only new name in it:
 
-Almost every call has exactly one step, and then the list adds nothing: `validate(account)`
-is the single step `[Default]`, `validate(account, Strict.class)` the single step `[Strict]`.
-Nothing to stop at, because there is nothing after it. A sequence is the case where the list
-is longer than one: `@GroupSequence({StepOne.class, StepTwo.class})` becomes the two steps
-`[StepOne]` then `[StepTwo]`, and *that* is where stopping early means something.
+```java
+for (List<Class<?>> step : GroupsSupport.resolveSteps(groups)) {
+    Set<ConstraintViolation<T>> stepViolations = new LinkedHashSet<>();
+    Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+    validateGraph(object, beanClass, object, step, null, visited, stepViolations);
+    if (!stepViolations.isEmpty()) {
+        return stepViolations;   // short-circuit: later steps are never evaluated
+    }
+}
+return Set.of();
+```
 
-So `resolveSteps` turns whatever was asked for into that list:
+`validate(bean, groups...)` used to walk the graph once, for the groups it was given. It now
+asks `resolveSteps` to turn those groups into a *list*, and walks the graph once **per
+element of that list**, returning at the first element that produces a violation. One element
+of that list is what the rest of this section calls a **step**: a set of groups evaluated
+together, in one pass over the graph. The word is the spec's, from §5.4.2 — "each group in a
+group sequence must be processed sequentially".
+
+Everything therefore depends on how long that list is. Here is what `resolveSteps` hands back
+for the four calls this post has already made — read these as "how many times the loop above
+will run, and with what":
+
+```
+validate(account)                       ->  [[Default]]              one step: loop runs once
+validate(account, Strict.class)         ->  [[Strict]]               one step: loop runs once
+validate(item, ExtendedGroup.class)     ->  [[ExtendedGroup,         one step: loop runs once,
+                                              BaseGroup]]            inheritance expanded into it
+validate(form, OrderedSequence.class)   ->  [[StepOne], [StepTwo]]   two steps: loop can stop
+                                                                     after the first
+```
+
+The first three are one-element lists, so the loop body runs exactly once and the
+`return stepViolations` is just "return what that single pass found" — the behaviour of the
+previous three sections, unchanged. Only a sequence produces more than one element, and only
+then does stopping early mean anything.
+
+And here is how that list gets built, the two branches matching the two shapes above:
 
 ```java
 static List<List<Class<?>>> resolveSteps(Class<?>[] requestedGroups) {
@@ -805,39 +833,11 @@ static List<List<Class<?>>> resolveSteps(Class<?>[] requestedGroups) {
 }
 ```
 
-What it returns for the calls this post has already made, the last one using the fixture
-below:
-
-```
-validate(account)                       ->  [[Default]]              nothing asked, Default assumed
-validate(account, Strict.class)         ->  [[Strict]]               plain group, single step
-validate(item, ExtendedGroup.class)     ->  [[ExtendedGroup,         plain group, single step,
-                                              BaseGroup]]            inheritance expanded into it
-validate(form, OrderedSequence.class)   ->  [[StepOne], [StepTwo]]   a sequence: one step per group
-```
-
-Only the last line takes the first branch of the method; the three above it fall through to
-the merge at the bottom and come back as a one-element list. Note what the outer list means
-in each case: for the first three it is "one step, nothing to short-circuit"; for the last it
-is "`StepOne` first, and `StepTwo` only if `StepOne` was clean".
-
-The second half is what the previous two sections already relied on — every requested group,
-expanded with its super-interfaces, merged into one flat step. The first half is new: a
-sequence becomes one step per group it lists, in order. `validate()` then walks those steps and returns at the first one that produces anything —
-with a fresh visited set per step, which is the narrowing the cycle-detection section
-promised: revisiting a bean under a later, independent step is never mistaken for a cycle.
-
-```java
-for (List<Class<?>> step : GroupsSupport.resolveSteps(groups)) {
-    Set<ConstraintViolation<T>> stepViolations = new LinkedHashSet<>();
-    Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-    validateGraph(object, beanClass, object, step, null, visited, stepViolations);
-    if (!stepViolations.isEmpty()) {
-        return stepViolations;   // short-circuit: later steps are never evaluated
-    }
-}
-return Set.of();
-```
+The bottom half is what the previous two sections already relied on, now wrapped in a
+one-element list: every requested group, expanded with its super-interfaces, merged into one
+step. The top half is the new part. Note also the `visited` set in the loop: it is created
+inside the loop body, so each step gets a fresh one — the narrowing the cycle-detection
+section promised, since revisiting a bean under a later, independent step is not a cycle.
 
 On `new Form("", "")` — both fields blank, so both steps would fail if both were evaluated —
 `validate(form, OrderedSequence.class)` runs step `[StepOne]`, gets the `field1` violation,
