@@ -233,5 +233,13 @@
                 <module>erasmus-tck</module>
             </modules>
         </profile>
+        <!-- Vidocq/vidocq-workspace#15: the brick in real containers, without Vauban.
+             Downloads OpenLiberty; never part of a plain build. -->
+        <profile>
+            <id>it-containers</id>
+            <modules>
+                <module>erasmus-it-openliberty</module>
+            </modules>
+        </profile>
     </profiles>
 </project>

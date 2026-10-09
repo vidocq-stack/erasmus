@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Only what the test needs: Jakarta REST, to answer over HTTP. Deliberately NOT beanValidation —
+     Erasmus, bundled in the WAR, is the only Jakarta Validation implementation in the server.
+     (The MicroProfile distribution pinned by workspace#15 is at the Jakarta EE 10 level and has
+     no public servlet-6.0 feature: restfulWS-3.1 brings the web container with it.) -->
+<server description="Erasmus without Liberty's Bean Validation">
+    <featureManager>
+        <feature>restfulWS-3.1</feature>
+    </featureManager>
+
+    <httpEndpoint id="defaultHttpEndpoint" host="localhost" httpPort="${http.port}" httpsPort="-1"/>
+
+    <webApplication location="erasmus-it.war" contextRoot="/erasmus-it"/>
+</server>

@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    erasmus-it-openliberty — Erasmus inside OpenLiberty, without Liberty's own Bean Validation.
+
+    Issue #16 / Vidocq/vidocq-workspace#15: every brick must also work without Vauban, in a
+    real application server. liberty-maven-plugin creates a server that enables only the
+    Jakarta feature this test needs (restfulWS) and never `beanValidation`, deploys a WAR that
+    bundles Erasmus in WEB-INF/lib, and failsafe checks it over HTTP.
+
+    Behind the `it-containers` profile, like `tck`: a plain `mvn install` downloads and runs
+    nothing. Everything here is test infrastructure; nothing is installed or deployed.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.vidocq.erasmus</groupId>
+        <artifactId>erasmus-parent</artifactId>
+        <version>0.4.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>erasmus-it-openliberty</artifactId>
+    <packaging>war</packaging>
+    <name>Erasmus :: IT :: OpenLiberty</name>
+    <description>Erasmus bundled in a WAR on OpenLiberty, without the beanValidation feature</description>
+
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <maven.install.skip>true</maven.install.skip>
+        <maven.javadoc.skip>true</maven.javadoc.skip>
+        <maven.source.skip>true</maven.source.skip>
+        <gpg.skip>true</gpg.skip>
+
+        <!-- Decided in Vidocq/vidocq-workspace#15: OpenLiberty 26.0.0.10, MicroProfile distribution.
+             Meant to move to a vidocq-parent property so every brick moves together. -->
+        <openliberty.runtime.version>26.0.0.10</openliberty.runtime.version>
+        <liberty.maven.plugin.version>3.11.4</liberty.maven.plugin.version>
+        <maven.war.plugin.version>3.4.0</maven.war.plugin.version>
+        <maven.failsafe.plugin.version>3.5.5</maven.failsafe.plugin.version>
+        <jakarta.ws.rs.version>3.1.0</jakarta.ws.rs.version>
+
+        <liberty.http.port>9581</liberty.http.port>
+    </properties>
+
+    <dependencies>
+        <!-- Bundled in WEB-INF/lib, with erasmus-api and jakarta.validation-api: the server
+             provides no Bean Validation at all. -->
+        <dependency>
+            <groupId>io.vidocq.erasmus</groupId>
+            <artifactId>erasmus-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.ws.rs</groupId>
+            <artifactId>jakarta.ws.rs-api</artifactId>
+            <version>${jakarta.ws.rs.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>erasmus-it</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>${maven.war.plugin.version}</version>
+                <configuration>
+                    <failOnMissingWebXml>false</failOnMissingWebXml>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>io.openliberty.tools</groupId>
+                <artifactId>liberty-maven-plugin</artifactId>
+                <version>${liberty.maven.plugin.version}</version>
+                <configuration>
+                    <runtimeArtifact>
+                        <groupId>io.openliberty</groupId>
+                        <artifactId>openliberty-microProfile7</artifactId>
+                        <version>${openliberty.runtime.version}</version>
+                        <type>zip</type>
+                    </runtimeArtifact>
+                    <serverName>erasmusIt</serverName>
+                    <bootstrapProperties>
+                        <http.port>${liberty.http.port}</http.port>
+                    </bootstrapProperties>
+                    <deployPackages>project</deployPackages>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>start-liberty</id>
+                        <phase>pre-integration-test</phase>
+                        <goals>
+                            <goal>create</goal>
+                            <goal>deploy</goal>
+                            <goal>start</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>stop-liberty</id>
+                        <phase>post-integration-test</phase>
+                        <goals>
+                            <goal>stop</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>${maven.failsafe.plugin.version}</version>
+                <configuration>
+                    <useModulePath>false</useModulePath>
+                    <systemPropertyVariables>
+                        <liberty.http.port>${liberty.http.port}</liberty.http.port>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

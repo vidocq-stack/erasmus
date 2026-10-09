@@ -1,0 +1,3 @@
+# The expected messages are the English bundle: do not let the build machine's locale pick another.
+-Duser.language=en
+-Duser.country=US

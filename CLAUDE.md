@@ -33,6 +33,9 @@ sdk env
 
 # TCK profile activates (currently an empty placeholder module — see ROADMAP M8)
 ./mvnw -Ptck -pl erasmus-tck install -DskipTests
+
+# Erasmus in a real container, without Vauban (downloads OpenLiberty)
+./mvnw -Pit-containers -pl erasmus-it-openliberty -am verify
 ```
 
 > `erasmus-tck` is **in-reactor behind the `tck` Maven profile** from day one (no historical
@@ -60,6 +63,8 @@ erasmus-jaxrs             ← Placeholder — ConstraintViolationException → H
 erasmus-bench             ← Placeholder — JMH vs Hibernate Validator (no benchmarks written yet)
 erasmus-examples          ← Placeholder — usage examples
 erasmus-tck               ← Placeholder — official TCK runner, in-reactor behind `tck` (M8)
+erasmus-it-openliberty    ← Erasmus bundled in a WAR on OpenLiberty, no `beanValidation` feature,
+                            behind `it-containers` (Vidocq/vidocq-workspace#15)
 ```
 
 **Current validation flow (M1, `erasmus-core` only):** `Validator.validate(bean)` →
