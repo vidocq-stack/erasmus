@@ -59,6 +59,39 @@ duplicate ledger. Two rules that follow from that:
   `ROADMAP.md` first, then quote the updated text — the post and the roadmap must never
   diverge.
 
+## The spec quote
+
+`ROADMAP.md` is our reformulation; the spec is the source. So each section's **Goal** also
+quotes the sentence of the originating spec it implements — for Erasmus, Jakarta Bean
+Validation **3.1** (say the version: section numbers move between versions) — as a blockquote
+with section number, title and a link to the anchor in the spec HTML
+(`https://jakarta.ee/specifications/bean-validation/3.1/jakarta-validation-spec-3.1#<anchor>`).
+One or two normative sentences per point, verbatim, fetched from the actual text — never
+quoted from memory: a misremembered section number or paraphrase presented as a quote is
+worse than no quote.
+
+**Always the same shape, everywhere in the post**: a lead-in sentence ending on the linked
+reference, a colon, then the quote as a `>` blockquote on its own. Not an inline
+`"fragment"` dropped mid-paragraph, and not a bare `§5.7.1` with no link — including in the
+closing sections and in back-references to a quote made earlier, where a reader arriving by
+anchor has no idea which sentence is meant. An inline fragment also quietly invites
+trimming the sentence down to the part that suits the argument; a blockquote keeps the
+whole sentence on screen, which is where `E-002` was hiding — in the clause *after* the one
+first quoted.
+
+That closes the chain spec → ROADMAP → commit → test, and it earns its keep in three places:
+
+- **Narrowed scope**: when the spec asks for more than the milestone did (cascading into
+  collections, §5.1.3), quote the wider text so the reader sees the gap against the source,
+  not just against our own notes.
+- **Wrong conventions**: quoting is how `E-001` was found — the spec said `@NotBlank` must
+  reject `null`, our convention said otherwise. When the text contradicts the code, the
+  section says so plainly and points at the `BUG.md` entry; it does not soften the finding.
+- **"Not in the spec"**: don't quote everywhere. When a point is a design decision the spec
+  leaves open (where the graph walk lives, how the leaf bean is threaded), say explicitly
+  that the spec constrains the result and not the shape — that sentence is as useful as a
+  quote, and pretending a citation exists is not an option.
+
 ## Proof, not just prose
 
 For each real design decision or mechanism described in the post, pick **one or two** actual
@@ -67,6 +100,85 @@ Concretely, for each example:
 
 - Quote the real code from the actual source file (constraint/validator/annotation and the
   test method), copy-pasted, not paraphrased or simplified into pseudo-code.
+- **Show the caller before the callee, and never a return value whose consumer is off
+  screen.** A table of "what `resolveOrderedGroups` returns" means nothing until the loop that
+  iterates it has been shown — the reader has no idea what the shape is *for*. Follow the
+  call: the method the user invokes, then what it asks for, then how that is built. A new
+  helper introduced by its own signature, before anyone calls it, reads as a definition out
+  of context.
+- **Say what kind of thing a spec concept is, at its first real use.** A post is read by
+  someone who does not know the spec: "a group is an interface, used purely as a label — no
+  methods, never instantiated" has to come before `groups = Strict.class` appears, and the
+  declaration of `Strict` has to be on screen rather than assumed. The spec usually says it
+  in one sentence (§5.4: "Groups are represented by interfaces"), so quote that rather than
+  paraphrasing — and check the sentences *around* the one being quoted, which is where that
+  definition was hiding.
+- **Don't invent a word for something the spec already names.** Twice in one section I
+  coined vocabulary — "sheet" for a set of groups processed together, then "step" for the
+  same thing — and each time the first reader stopped there. The spec says a sequence orders
+  *groups*; there was never a third kind of thing to name. Before introducing a term, check
+  whether the spec sentence you are about to quote already contains it, and if you still need
+  a name of your own, say so explicitly ("a name of ours, not the spec's").
+- **Keep fixture names honest about what they are.** `StepOne`/`StepTwo` as the groups of a
+  sequence taught the wrong model: they are groups, usable on their own, and being listed in
+  a `@GroupSequence` is something done *to* them. Renamed `FirstGroup`/`SecondGroup`.
+- **Don't open a section on an abstract definition.** "A call evaluates an ordered list of
+  sets of groups, stopping at the first…" is a sentence you can only understand once you
+  already know the answer. Open on the code the reader can run or point at, and let the
+  vocabulary fall out of it — define the word *after* the thing it names is on screen.
+- **A design decision needs the case where the other choice answers differently.** A bullet
+  saying "group filtering lives in the caller, not inside the evaluation" is an assertion
+  about code the reader cannot see the consequences of. Turn it into a question, give it a
+  concrete call, and say what the rejected design would have returned instead ("move that
+  `if` three lines down and `validate(person, Strict.class)` reports zero violations instead
+  of two"). A list of such bullets with no cases is the single most reliable way to lose
+  someone, and it is worth capturing one trace of two or three calls against *one* fixture
+  and answering every question off that same output, rather than one example per bullet.
+- **Say which decisions could be wrong.** When a section mixes conformance with design,
+  mark the split: only the spec-mandated part can be "wrong", the rest is a shape that was
+  chosen and could have been chosen otherwise.
+- **Never show a snippet of engine code without an instance behind it.** A method, a record,
+  a loop on its own is a definition; followed by "on `Account`, this gives…" it becomes an
+  explanation. Trace what the code returns for a real bean: what the record holds, which
+  branch each constraint takes, the walk line by line.
+- **Illustrate with the fixture that section's own tests use** — the one already on the
+  reader's screen. The post carries a running example across sections (`Person` holding a
+  `@Valid Address` whose `city` is `@NotBlank`), but a section whose tests are built on
+  `Account` explains its snippets with `Account`, and the group-sequence section with `Form`.
+  Switching to a fixture defined two hundred lines away, or inventing one on the spot, is the
+  fastest way to lose someone who was following. When a point genuinely needs a fixture the
+  section does not have — group filtering not pruning the graph needs a cascaded bean, and
+  `Account` is flat — say so and link to the section that has it, rather than quietly
+  swapping fixtures mid-paragraph.
+- **Show what a changed method replaced.** A fix reads as a fix only next to what it
+  replaced: keep the old body above the new one, commented as such
+  (`// before — written in M1 and never revisited`), whenever the point of the snippet is
+  that the previous version was wrong.
+- **Measure the red against the commit's own parent, not against the branch point.** On an
+  incremental branch, each commit's test should be red on the commit just before it — that is
+  what proves *that* commit did something. The group-inheritance test looks green against the
+  branch point and red against its parent (`expected: <[sku]> but was: <[]>`), because the
+  commit before it had filtering but no expansion; quoting the wrong baseline would have
+  hidden the whole point. A throwaway `git worktree add --detach <parent>` with the new test
+  copied in gives the real output in a minute.
+- **If a test cannot go red, it is not proof yet — fix the fixture.** A fixture with a single
+  constraint cannot tell "evaluate everything" from "evaluate the right thing": both answer
+  the same. Give it something that must stay silent (a constraint in an unrelated group, a
+  nested bean that must not be reached) and the test starts having an opinion. When a section
+  has to admit its test was worthless at first, say so — that story is more useful than the
+  green run.
+- **An assertion message states the expectation, never a cause.** `assertEquals(2, n, "both
+  composing constraints fail on \"\"")` printed, on a red run, a reason that had nothing to do
+  with the actual `0` — the engine never reached the constraints at all. Write what must hold
+  ("Strict requested: both constraints composing @CityName must fire") and make the
+  comparison carry the facts: compare *which* constraints fired or *which* paths were
+  violated (`expected: <[Size, NotBlank]> but was: <[]>`), not a bare count. The red output
+  then explains itself, and the post explains the why from what the baseline lacks.
+- Show the code before the command, every time — the fixture (the class and annotations the
+  point is about) and the test method itself, trimmed, with a sentence on what the test asks
+  for. A bare `expected: <1> but was: <0>` means nothing to someone who has not seen the
+  assertion that produced it. This applies to the red run in the goal as much as to the
+  green run in the proof.
 - Show the actual command used to run just that test (`cd erasmus-core && ../mvnw -ntp test
   -Dtest=SomeTest`) and the **real** Surefire output from actually running it — never a
   fabricated "Tests run: N" line. Run the command again if the post is being edited later
@@ -75,6 +187,24 @@ Concretely, for each example:
 This is the difference between "here's what the code looks like" and "here's proof it
 actually works," and it's the reason this series exists instead of just pointing people at
 `ROADMAP.md`.
+
+## One commit per section, and the files to open
+
+Shape the branch so that it reads like the post: **one commit per section, titled the same
+way**, so `git log --oneline` is the table of contents and a section can be read next to
+`git show` of its commit. Build the commits incrementally and keep every intermediate state
+green for the tests it contains — the point is that each diff is small enough to read in
+one sitting, alongside the section that explains it. Where two sections genuinely have to
+land together (cascading and its cycle detection, say), or a section has no commit of its
+own (a design discussion, a test-only check), say so in the section's opening line rather
+than forcing a split or a fake commit.
+
+Every section then **opens with the files worth having open** — an italic line naming the
+commit and linking the two to five files a reader should look at, with relative links from
+`doc/making-of/` (`../../erasmus-core/src/main/java/...`). In the prose, point at the
+specific method or lines ("open `ErasmusValidator.java` at `validateGraph`, the first three
+lines") rather than only naming the file: the reader has the code on the other half of the
+screen, so tell them where to look.
 
 ## Closing
 
@@ -98,3 +228,12 @@ belongs once, in the series intro in the root `MAKING-OF.md`, not repeated per p
 - Don't repeat a full milestone recap as its own top-level section with a heading — a short
   paragraph under the intro is enough (see "Opening" above).
 - Don't add per-post meta-commentary about why the series exists — said once, in the index.
+- Don't drop the comma after a fronted phrase — "In this commit, there is one such set", not
+  "In this commit there is". The comma shows where the frame ends and the sentence starts;
+  reading aloud is the test.
+- Don't write about "the reader" — write *to* them. The register is a colleague sitting next
+  to you looking at the same screen: "look at that last line", "read the whole requirement",
+  never "so the reader can see". Second person, or an imperative; the third person turns a
+  conversation into a report.
+- Don't slip into the passive for your own decisions ("then came the request to…", "it was
+  decided…") — first person, always: "then I asked Claude to…". The journal has an author.
