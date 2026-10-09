@@ -119,8 +119,8 @@ constraints, no executable validation yet — see ROADMAP M3–M5 for each.
   = reflective metadata model (`BeanMetadata`, `PropertyMetadata`, `ConstraintDescriptorImpl`,
   accessors). `io.vidocq.erasmus.core.internal.constraints` = built-in `ConstraintValidator`
   implementations + the `BuiltinConstraints` registry.
-- **Maven groupId**: `io.vidocq.erasmus`. Version: `0.3.0-SNAPSHOT` (the workspace's shared
-  dev version, parent `io.vidocq:vidocq-parent:0.3.0-SNAPSHOT`).
+- **Maven groupId**: `io.vidocq.erasmus`. Version: `0.4.0-SNAPSHOT` (the workspace's shared
+  dev version, parent `io.vidocq:vidocq-parent:0.4.0-SNAPSHOT`).
 - **Records** for immutable data (`BeanMetadata`, `PropertyMetadata`,
   `ErasmusConfigurationState`, `MessageInterpolatorContextImpl`) where the interface being
   implemented doesn't dictate `getXxx()`-style accessor names; otherwise plain `final` classes
