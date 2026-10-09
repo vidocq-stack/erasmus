@@ -15,9 +15,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `jakarta.validation:jakarta.validation-api:3.1.1` is already modular upstream
   (module `jakarta.validation`) — no Vidocq fork needed (unlike Knock's MicroProfile
   Health API).
-- The official Jakarta Bean Validation 3.1 TCK's distribution shape (Maven Central
-  coordinates vs. build-from-source, Arquillian-or-not) is **not yet confirmed** — this
-  is the first task of ROADMAP M8, not an installation step you can follow today.
+- The official Jakarta Validation 3.1 TCK is on Maven Central
+  (`jakarta.validation:validation-tck-tests:3.1.1`, plus its standalone Arquillian
+  container adapter): nothing to install by hand, `-Ptck` downloads it.
 
 ## Essential Commands
 
@@ -31,8 +31,9 @@ sdk env
 # Unit tests
 ./mvnw test
 
-# TCK profile activates (currently an empty placeholder module — see ROADMAP M8)
-./mvnw -Ptck -pl erasmus-tck install -DskipTests
+# Official TCK (whole suite, or one TCK test class)
+./run-official-tck-bean-validation-3.1.sh
+./run-official-tck-bean-validation-3.1.sh -Dtest=EmailConstraintTest
 
 # Erasmus in a real container, without Vauban (downloads OpenLiberty)
 ./mvnw -Pit-containers -pl erasmus-it-openliberty -am verify
@@ -62,7 +63,7 @@ erasmus-cdi-vauban        ← Placeholder — Validator/ValidatorFactory as CDI 
 erasmus-jaxrs             ← Placeholder — ConstraintViolationException → HTTP 400 via Cassini (M9)
 erasmus-bench             ← Placeholder — JMH vs Hibernate Validator (no benchmarks written yet)
 erasmus-examples          ← Placeholder — usage examples
-erasmus-tck               ← Placeholder — official TCK runner, in-reactor behind `tck` (M8)
+erasmus-tck               ← Official TCK runner (TestNG + Arquillian standalone), in-reactor behind `tck`
 erasmus-it-openliberty    ← Erasmus bundled in a WAR on OpenLiberty, no `beanValidation` feature,
                             behind `it-containers` (Vidocq/vidocq-workspace#15)
 ```
@@ -160,16 +161,18 @@ Concrete rules:
 
 ## TCK — Technology Compatibility Kit
 
-Jakarta Bean Validation 3.1 TCK — not yet integrated. `erasmus-tck` is an in-reactor
-placeholder module, gated behind the `tck` Maven profile (harmonised with every other
-Vidocq sub-project). Before writing real content into it, ROADMAP M8 must first spike:
+Jakarta Validation 3.1 TCK, `jakarta.validation:validation-tck-tests:3.1.1` from Maven
+Central, run by `erasmus-tck` behind the `tck` Maven profile (harmonised with every other
+Vidocq sub-project) through `./run-official-tck-bean-validation-3.1.sh`. It runs in plain
+Java SE — TestNG plus the TCK's own standalone Arquillian adapter, no application server —
+and on the **class path**, which is why `erasmus-core` ships `META-INF/services` next to its
+`provides` clause. The provider is selected with `-Dvalidation.provider`; the tests that need
+a full Jakarta EE container are excluded by the TCK's own `IntegrationTestsMethodSelector`
+(`-DexcludeIntegrationTests=true`), the JavaFX ones by `JavaFXTestsMethodSelector`. The
+suite file is the TCK's own `tck-tests.xml`, unpacked from the jar, never copied.
 
-- the TCK's actual Maven Central coordinates (unconfirmed — Jakarta TCKs are not uniformly
-  published there);
-- whether the suite needs an Arquillian container at all, or is largely runnable in plain
-  Java SE (Bean Validation, unlike Servlet/REST/CDI, does not itself require a container);
-- the signature test (`.sig` file) that `erasmus-api` must satisfy with zero extra public
-  members.
+Still to do: the signature test (`.sig` file) that `erasmus-api` must satisfy with zero
+extra public members.
 
 **Release discipline (once M8 lands):** no structural merge on `erasmus-core` /
 `erasmus-codegen-apt` / `erasmus-cdi-vauban` without TCK PASS at 100%. Any challenge

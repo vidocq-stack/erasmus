@@ -1,15 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-    erasmus-tck — placeholder for the official Jakarta Bean Validation 3.1 TCK runner.
+    erasmus-tck — runs the official Jakarta Validation 3.1 TCK against Erasmus.
 
     In-reactor module gated by the `tck` Maven profile of erasmus-parent (TCK
     harmonisation — same pattern as every other Vidocq sub-project): a plain
     `mvn install` neither downloads nor runs anything TCK-related.
 
-    ROADMAP M8 spikes the TCK's actual distribution shape (Maven Central
-    coordinates vs. build-from-source, and whether the suite needs an
-    Arquillian container at all — see ROADMAP.md's "Known risks") before this
-    module gets real content.
+    The TCK is published on Maven Central (jakarta.validation:validation-tck-tests)
+    with a standalone Arquillian container adapter, so it runs in plain Java SE:
+    TestNG + Arquillian, no application server. It runs on the class path — which
+    is why Erasmus ships META-INF/services next to its module-info `provides`.
+    Tests that need a full Jakarta EE container (CDI, EJB) are excluded by the
+    TCK's own IntegrationTestsMethodSelector; the JavaFX ones by its
+    JavaFXTestsMethodSelector.
+
+    Use ./run-official-tck-bean-validation-3.1.sh rather than invoking this module directly.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -24,7 +29,7 @@
 
     <artifactId>erasmus-tck</artifactId>
     <name>Erasmus :: TCK</name>
-    <description>Official Jakarta Bean Validation 3.1 TCK runner — placeholder, see ROADMAP M8</description>
+    <description>Runs the official Jakarta Validation 3.1 TCK against Erasmus</description>
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
@@ -32,17 +37,107 @@
         <maven.javadoc.skip>true</maven.javadoc.skip>
         <maven.source.skip>true</maven.source.skip>
         <gpg.skip>true</gpg.skip>
+
+        <!-- Test-only, and only behind -Ptck: none of these reach a shipped artifact. -->
+        <validation.tck.version>3.1.1</validation.tck.version>
+        <testng.version>7.10.2</testng.version>
+        <arquillian.version>1.9.1.Final</arquillian.version>
+
+        <tck.suite.dir>${project.build.directory}/tck-suite</tck.suite.dir>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.jboss.arquillian</groupId>
+                <artifactId>arquillian-bom</artifactId>
+                <version>${arquillian.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
             <groupId>io.vidocq.erasmus</groupId>
             <artifactId>erasmus-core</artifactId>
         </dependency>
+
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>validation-tck-tests</artifactId>
+            <version>${validation.tck.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>validation-standalone-container-adapter</artifactId>
+            <version>${validation.tck.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
+            <version>${testng.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.arquillian.testng</groupId>
+            <artifactId>arquillian-testng-container</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- The official suite file, untouched: unpacked from the TCK jar rather than copied. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>unpack-tck-suite</id>
+                        <phase>generate-test-resources</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>jakarta.validation</groupId>
+                                    <artifactId>validation-tck-tests</artifactId>
+                                    <version>${validation.tck.version}</version>
+                                    <includes>tck-tests.xml</includes>
+                                    <outputDirectory>${tck.suite.dir}</outputDirectory>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <useModulePath>false</useModulePath>
+                    <suiteXmlFiles>
+                        <suiteXmlFile>${tck.suite.dir}/tck-tests.xml</suiteXmlFile>
+                    </suiteXmlFiles>
+                    <!-- Lets -Dtest=SomeTckTest find a class inside the TCK jar (surefire then
+                         bypasses the suite file, and with it the TCK's method selectors). -->
+                    <dependenciesToScan>
+                        <dependency>jakarta.validation:validation-tck-tests</dependency>
+                    </dependenciesToScan>
+                    <systemPropertyVariables>
+                        <validation.provider>io.vidocq.erasmus.core.internal.ErasmusValidationProvider</validation.provider>
+                        <excludeIntegrationTests>true</excludeIntegrationTests>
+                        <includeJavaFXTests>false</includeJavaFXTests>
+                    </systemPropertyVariables>
+                    <!-- Most of the TCK is still red: the run reports, it does not gate (yet). -->
+                    <testFailureIgnore>true</testFailureIgnore>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
