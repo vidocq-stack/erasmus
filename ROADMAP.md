@@ -34,15 +34,50 @@ makes them meaningful:
 - **Layer 2 — `erasmus-core` integration tests**: full bean graphs, group sequences,
   container element constraints, executable validation — independent of the TCK and
   reproducible without any external harness.
-- **Layer 3 — official TCK** (`jakarta.validation:*-tck` — exact coordinates to confirm,
-  see M8): 100% PASS contract before any structural merge on `erasmus-core` /
-  `erasmus-cdi-vauban`. In-reactor behind the `tck` Maven profile, per the ecosystem's
-  current convention (a plain `mvn install` neither builds nor downloads the TCK harness).
+- **Layer 3 — official TCK** (`jakarta.validation:validation-tck-tests:3.1.1`): runs on
+  **every commit**, as a ratchet — see "The TCK drives every milestone" below. In-reactor
+  behind the `tck` Maven profile, per the ecosystem's current convention (a plain
+  `mvn install` neither builds nor downloads the TCK harness).
 - **Layer 4 — codegen/reflection differential testing** (from M5 onward, once
   `erasmus-codegen-apt` exists): the same fixture beans are validated twice — once through
   the reflective metadata builder, once through APT-generated dispatch classes — and the
   resulting `Set<ConstraintViolation<T>>` must be equal (same paths, same messages, same
   root beans) on every commit touching `erasmus-core` or `erasmus-codegen-apt`.
+
+## The TCK drives every milestone
+
+*Decided 2026-10-09.* The official TCK is not a milestone at the end of the list any more:
+it is the acceptance test of every milestone, and it runs on every commit.
+
+- `erasmus-tck/tck-known-failures.txt` lists the TCK tests Erasmus does not pass yet.
+  `KnownFailuresRatchet` fails the run when a listed test passes (remove its line in that
+  commit) or when an unlisted test fails (a regression). `.forgejo/workflows/tck.yml` runs it
+  on every commit of a pull request.
+- Each milestone names its **TCK slice**: the TCK packages it owns. Work on a milestone
+  starts by running its slice and watching it fail; a commit that turns TCK tests green
+  deletes their lines, so `git log -p erasmus-tck/tck-known-failures.txt` is the
+  milestone's progress, test by test.
+- A milestone is done when none of its slice is left in the list, except tests that fail
+  only because a *later* milestone is missing (the `UnsupportedOperationException`s of the
+  metadata API and of executable validation), and tests filed in `TCK.md`.
+
+Where each milestone's slice stood on the first run (TCK 3.1.1, 981 tests run, the
+`@IntegrationTest` ones excluded). "Other failures" fail for a reason of their own — not
+because M5 or M6 is missing:
+
+| Milestone | TCK packages (under `org.hibernate.beanvalidation.tck.tests`) | Tests | Passing | Other failures | Blocked by M5 | Blocked by M6 |
+|---|---|---:|---:|---:|---:|---:|
+| M1–M2 | `bootstrap*`, `validatorfactory`, `validation.validatorcontext`, `constraints.*` (except the groups, container-element, cross-parameter and method ones), `time`, `messageinterpolation` | 192 | 68 | 86 | 18 | 20 |
+| M3 | `constraints.groups*`, `validation`, `validation.graphnavigation`, `validation.groupconversion`, `traversableresolver` | 153 | 46 | 55 | 46 | 6 |
+| M4 | every `*.containerelement` package outside `xmlconfiguration`, `valueextraction.*` | 136 | 5 | 96 | 34 | 1 |
+| M5 | `methodvalidation*`, `constraints.crossparameter`, `constraints.application.method`, `constraints.inheritance.method.*` | 176 | 2 | 11 | 163 | 0 |
+| M6 | `metadata` | 164 | 0 | 2 | 0 | 162 |
+| M10 | `xmlconfiguration*` | 146 | 2 | 74 | 15 | 55 |
+| — | `util` (the TCK's own helpers) | 14 | 12 | 0 | 2 | 0 |
+| **Total** | | **981** | **135** | **324** | **278** | **244** |
+
+`./run-official-tck-bean-validation-3.1.sh` prints the same view, per package, from
+`erasmus-tck/target/tck-summary.txt`.
 
 ## Jakarta Bean Validation 3.1 — spec recap (key points to implement)
 
@@ -174,6 +209,27 @@ case. 88 tests total (up from 76), all green.
 
 ---
 
+### M3.5 — TCK catch-up on what M1–M3 already claim (next)
+
+**Scope:** the TCK tests of M1–M3's slices that fail for a reason of their own — 141 on the
+first run (86 in M1–M2's packages, 55 in M3's) — as opposed to failing on the metadata API
+(M6) or executable validation (M5), which do not exist yet.
+
+**Why before M4:** M1–M3 were closed against our own tests only. The TCK passes 114 of
+their 345 tests. M4 builds on all three; fixing the gap now is cheaper than carrying it.
+
+| Task | Notes |
+|---|---|
+| M1–M2 slice | Seen on the first run: no validator for `@Null`; `@Min` rejecting `Double`; no validator for `LocalTime`, `ZonedDateTime`, `GregorianCalendar` (M2's narrowed type set); constraint-definition checks (`constraints.invalidconstraintdefinitions`, 0/17); validator resolution (5/26); message interpolation (9/29). |
+| M3 slice | Groups and group sequences (`constraints.groups.groupsequenceisolation`, 0/5); group conversion (`@ConvertGroup`, never in M3's narrowed scope); graph navigation; `TraversableResolver`. |
+| `E-001`, `E-002` | Fix them through the TCK tests that cover them, where there are any. |
+| Blocked tests | The M1–M3 tests that fail only on M5's or M6's `UnsupportedOperationException` stay listed; they move with those milestones. |
+
+**Deliverable:** no test of the M1–M3 slices left in `tck-known-failures.txt`, except the
+ones blocked by M5/M6 and any filed in `TCK.md`.
+
+---
+
 ### M4 — Container element constraints (`ValueExtractor` SPI)
 
 **Scope spec:** validation of type-argument-annotated container elements.
@@ -188,6 +244,9 @@ case. 88 tests total (up from 76), all green.
 
 **Deliverable:** `List<@NotBlank String>`, `Optional<@Positive Integer>`,
 `Map<@NotNull String, @Valid Address>` all validate correctly, including nested cases.
+
+**TCK slice:** every `*.containerelement` package outside `xmlconfiguration`, and
+`valueextraction.*` — 136 tests, 5 passing on the first run.
 
 ---
 
@@ -209,6 +268,11 @@ case. 88 tests total (up from 76), all green.
 `erasmus-codegen-apt` generating dispatch classes for at least the M1–M4 constraint set,
 with differential tests green against the reflective path.
 
+**TCK slice:** `methodvalidation*`, `constraints.crossparameter`,
+`constraints.application.method`, `constraints.inheritance.method.*` — 176 tests, 2 passing
+on the first run — plus, in every other slice, the tests that failed only on executable
+validation's `UnsupportedOperationException` (115 on the first run).
+
 ---
 
 ### M6 — Constraint metadata API
@@ -224,6 +288,10 @@ with differential tests green against the reflective path.
 
 **Deliverable:** full metadata introspection API, tested against every constraint family
 introduced in M1–M5.
+
+**TCK slice:** `metadata` — 164 tests, none passing on the first run — plus, in every other
+slice, the tests that failed only on the metadata API's `UnsupportedOperationException`
+(82 on the first run).
 
 ---
 
@@ -242,29 +310,30 @@ but required by the Jakarta EE platform and by a subset of TCK challenges).
 **Deliverable:** a Vauban-managed bean with `@ValidateOnExecution`-annotated methods
 rejects invalid invocations with a correctly populated `ConstraintViolationException`.
 
+**TCK slice:** the TCK's `@IntegrationTest` tests, which need a CDI/EJB container and are
+excluded today (`-DexcludeIntegrationTests=true`). Issue #16 also asks for this module to be
+container-neutral (a standard Build Compatible Extension and interceptor) rather than
+Vauban-specific, with a Weld integration test.
+
 ---
 
-### M8 — Official Jakarta Bean Validation 3.1 TCK
+### M8 — TCK: the signature test, the container subset, the last gaps
 
-**Scope:** conformance validation + reproducible script. This is the milestone the user
-asked to plan in detail — treated as its own track, not an afterthought.
+**Scope:** what no other milestone owns. The TCK itself runs on every commit from the
+ratchet onward (see "The TCK drives every milestone"); this milestone no longer *starts*
+TCK work, it closes it.
 
-| Task | Notes |
-|---|---|
-| **Spike: TCK distribution & shape** | Confirm exact Maven coordinates (candidate: `jakarta.validation:jakarta.validation-tck` — **to verify**, TCKs are not uniformly published to Maven Central) or clone-and-build from `github.com/jakartaee/beanvalidation-tck`. Confirm whether the suite needs Arquillian at all: unlike Servlet/REST/CDI, most of Bean Validation is usable in plain Java SE, so a large fraction of the TCK may be runnable without a container — verify against the actual TCK user guide before assuming an Arquillian harness is required. |
-| Signature test | The TCK ships a `.sig` file asserting the exact public shape of `jakarta.validation.*`. `erasmus-api` must re-export the spec API with **zero** extra public members — run the signature test first, before the functional suite, since it fails fast and cheaply. |
-| `erasmus-tck` module | Standalone-capable Model 4.0.0 POM if a container-less runner suffices; otherwise an Arquillian runner following the `KnockDeployableContainer` / `ErasmusDeployableContainer` pattern (reuse `CassiniTestHarness` only if the CDI-integration subset of the TCK truly needs a deployable container). |
-| `run-official-tck-bean-validation-3.1.sh` | Modes: smoke / all / `-Dtest=TestName`; `target/tck-report.txt` report — same UX as every other sub-project's TCK script. |
-| In-reactor behind the `tck` Maven profile | Per the ecosystem's current convention: a plain `./mvnw install` neither builds nor downloads the TCK harness. |
-| **Contract: 100% PASS** | Hard gate before any structural merge on `erasmus-core`, `erasmus-codegen-apt`, or `erasmus-cdi-vauban` from this milestone onward. |
-| `TCK.md` | Only created if a challenge is filed (disabled test, documented spec-interpretation divergence) — same discipline as Knock/Champollion. |
+| Task | Notes | Status |
+|---|---|---|
+| Spike: TCK distribution & shape | Resolved: `jakarta.validation:validation-tck-tests:3.1.1` and `validation-standalone-container-adapter:3.1.1` on Maven Central. TestNG + Arquillian in plain Java SE, no application server; the provider is selected with `-Dvalidation.provider`. It runs on the class path, which is why `erasmus-core` ships `META-INF/services`. | ✅ |
+| `erasmus-tck` + `run-official-tck-bean-validation-3.1.sh` | In-reactor behind `-Ptck`; the TCK's own `tck-tests.xml`, unpacked from the jar; whole suite (about ten seconds) or `-Dtest=SomeTckTest`. | ✅ |
+| Ratchet | `tck-known-failures.txt` + `KnownFailuresRatchet`; `.forgejo/workflows/tck.yml` runs it on every commit of a pull request. | ✅ |
+| Signature test | The TCK ships a `.sig` file asserting the exact public shape of `jakarta.validation.*`. `erasmus-api` must re-export the spec API with **zero** extra public members. | |
+| Container subset | The `@IntegrationTest` tests, after M7. | |
+| `TCK.md` | Only created if a challenge is filed (disabled test, documented spec-interpretation divergence) — same discipline as Knock/Champollion. | |
 
-**Sequencing note:** Layer 3 (TCK) should start running — even partially, even red —
-from **M1 onward** as a continuous signal, not bolted on at the end. M8 is the milestone
-where it becomes a **hard merge gate at 100%**, not the milestone where TCK work begins.
-
-**Deliverable:** signature test PASS, full functional TCK reproducible via
-`./run-official-tck-bean-validation-3.1.sh all`, 100% PASS score recorded.
+**Deliverable:** `tck-known-failures.txt` empty, or holding only entries filed in `TCK.md`;
+signature test PASS; the container subset run.
 
 ---
 
@@ -298,6 +367,8 @@ usage is annotation-driven.
 **Deliverable:** XML-declared constraints validate identically to their annotation-declared
 equivalents; merging rules respected.
 
+**TCK slice:** `xmlconfiguration*` — 146 tests, 2 passing on the first run.
+
 ---
 
 ### M11 — Vidocq ecosystem integration
@@ -326,6 +397,8 @@ single dependency, documented and TCK-backed.
 3. **M3 (cascading + groups)** before **M4 (container elements)**: container element
    constraints are themselves cascade-aware (`List<@Valid Address>`), so the graph-walking
    machinery must exist first.
+   **M3.5 (TCK catch-up)** in between: M4 builds on M1–M3, and the TCK showed those three
+   were closed with 231 of their 345 TCK tests failing.
 4. **M4 (container elements)** before **M5 (executable validation)**: method/constructor
    validation can itself take container-typed parameters; build the extractor SPI first.
 5. **M5 (executable validation + codegen)** is deliberately paired: introducing
@@ -337,10 +410,10 @@ single dependency, documented and TCK-backed.
 7. **M7 (CDI)** before **M9 (Jakarta REST)**: `@ValidateOnExecution` and CDI-managed
    `ConstraintValidator`s are a platform integration point that Cassini's resource-method
    validation will end up depending on conceptually (even if not directly on the module).
-8. **M8 (TCK) is not "last"** despite its position in the milestone list: Layer 3 runs
-   continuously from M1, this entry marks where it becomes a **hard 100% gate**. It is
-   listed after M7 because the CDI-integration subset of the official TCK cannot be
-   attempted before `erasmus-cdi-vauban` exists.
+8. **The TCK is not a milestone at the end any more**: it is the acceptance test of every
+   milestone, run on every commit as a ratchet. M8 only keeps what no milestone owns — the
+   signature test, the container subset, the last gaps — and comes after M7 because the
+   container subset needs it.
 9. **M9 (Jakarta REST)** and **M10 (XML mapping)** are explicitly lower priority: neither
    blocks the TCK's annotation-driven core, and both are additive once the engine is solid.
 10. **M11 (ecosystem integration)** last, same rationale as every other sub-project: don't
@@ -350,8 +423,7 @@ single dependency, documented and TCK-backed.
 
 | Risk | Mitigation |
 |---|---|
-| Exact Jakarta Bean Validation 3.1 TCK Maven coordinates / distribution shape unconfirmed | Spike at the start of M8 (or earlier, opportunistically) to confirm availability on Maven Central vs. build-from-source (`github.com/jakartaee/beanvalidation-tck`); document the finding immediately in this file. |
-| Whether the TCK truly requires Arquillian for its full scope | Verify against the TCK user guide before committing to a container-based harness; a container-less runner would be materially simpler and should be preferred if the guide allows it. |
+| A listed TCK test that changes its reason for failing goes unnoticed (the ratchet tracks pass/fail, not why) | When a milestone closes, review what is still listed in its slice: every remaining entry must fail only on a later milestone's `UnsupportedOperationException`, or be in `TCK.md`. |
 | Homegrown EL-subset interpolator diverging from the spec's required grammar | Build a dedicated grammar conformance test suite in M2, expand it as TCK message-interpolation tests surface gaps. |
 | Parameter name resolution without `-parameters` on third-party-compiled classes | `ParameterNameProvider` SPI as designed by the spec — document the default behavior clearly; do not silently guess names. |
 | Circular object graphs causing infinite cascading recursion | Visited-(bean identity, group) tracking per top-level `validate()` call, covered by dedicated cycle tests from M3. |
@@ -369,8 +441,10 @@ single dependency, documented and TCK-backed.
   goal, not an afterthought — aligned with the workspace-wide "maximum static code
   generation" philosophy, with the reflective builder kept as the fallback path.
 - ✅ **Strict TDD** on all production modules, one Bean Validation 3.1 chapter at a time.
-- ✅ **TCK PASS 100%** as a hard contract from M8 onward; TCK signal collected continuously
-  from M1.
+- ✅ **The TCK is a ratchet on every commit** (2026-10-09), not a milestone at the end:
+  `tck-known-failures.txt` only shrinks, each milestone names its TCK slice, and a
+  milestone is done when its slice is out of the list. Target: the list empty (or holding
+  only `TCK.md` challenges) by M8.
 - ✅ **TCK in-reactor behind the `tck` Maven profile** from the start — no historical
   out-of-reactor phase needed, since Erasmus starts life after the workspace's Maven
   3.9.16 / Model 4.0.0 migration that made the old ShrinkWrap constraint moot.
