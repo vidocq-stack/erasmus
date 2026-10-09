@@ -10,6 +10,7 @@ Entry format: `short id · date · symptom · minimal repro · cause hypothesis 
 - **Cause**: the M1 convention "every built-in validator except `@NotNull` treats `null` as trivially valid" (`CLAUDE.md`, rule 3) was applied to all constraints. The spec makes it true for most (Bean Validation 3.1 §8.13 `@Size`: "`null` elements are considered valid") but not for these two — §8.21 `@NotBlank`: "The annotated element must not be `null` and must contain at least one non-whitespace character."; §8.20 `@NotEmpty`: "The annotated element must not be `null` nor empty."
 - **Found**: while quoting the spec in `doc/making-of/04-cascading-and-groups.md` (M3). The TCK (M8) would have caught it.
 - **Fix**: `NotBlankValidator`, the four `NotEmptyValidatorFor*`, their tests, and `CLAUDE.md` rule 3 (exceptions: `@NotNull`, `@NotEmpty`, `@NotBlank`). Separate change, not part of M3.
+- **Confirmed by the official TCK** (2026-10-09, first run of `erasmus-tck`): `NotBlankConstraintTest#testNotBlankConstraint` fails on its first assertion — a fresh `NotBlankDummyEntity`, `name` null, must yield one `@NotBlank` violation; Erasmus yields none. The test is listed in `erasmus-tck/tck-known-failures.txt`; fixing E-001 must remove that line.
 - **Status**: open.
 
 ## E-002 · 2026-09-02 · Cycle detection is per `validate()` call, spec says per navigation path

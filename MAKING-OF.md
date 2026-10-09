@@ -20,3 +20,7 @@ each post stays a readable size — new posts get added as new milestones land.*
 4. [M3: cascaded validation, groups, and `@GroupSequence`](doc/making-of/04-cascading-and-groups.md) —
    `@Valid` cascading with cycle detection, group filtering and inheritance, group-sequence
    short-circuiting, and making all of it compose with M2's composed constraints.
+5. [The TCK drives the plan: two issues, the official TCK on every commit, and a new M3.5](doc/making-of/05-the-tck-drives-the-plan.md) —
+   aligning on 0.4.0-SNAPSHOT, making Erasmus visible on a class path (and proving it on
+   OpenLiberty), running the official TCK as a ratchet on every commit, and the plan change
+   it led to.
