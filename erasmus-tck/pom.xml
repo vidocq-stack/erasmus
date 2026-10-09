@@ -133,9 +133,17 @@
                         <validation.provider>io.vidocq.erasmus.core.internal.ErasmusValidationProvider</validation.provider>
                         <excludeIntegrationTests>true</excludeIntegrationTests>
                         <includeJavaFXTests>false</includeJavaFXTests>
+                        <erasmus.tck.knownFailures>${project.basedir}/tck-known-failures.txt</erasmus.tck.knownFailures>
+                        <erasmus.tck.summary>${project.build.directory}/tck-summary.txt</erasmus.tck.summary>
                     </systemPropertyVariables>
-                    <!-- Most of the TCK is still red: the run reports, it does not gate (yet). -->
-                    <testFailureIgnore>true</testFailureIgnore>
+                    <!-- The ratchet: a listed test that fails is skipped, a listed test that passes
+                         fails the build, an unlisted test that fails is a regression. -->
+                    <properties>
+                        <property>
+                            <name>listener</name>
+                            <value>io.vidocq.erasmus.tck.KnownFailuresRatchet</value>
+                        </property>
+                    </properties>
                 </configuration>
             </plugin>
         </plugins>

@@ -16,7 +16,12 @@
 #   1. Installs erasmus-api and erasmus-core locally (./mvnw install -DskipTests).
 #   2. Runs ./mvnw -Ptck -pl erasmus-tck test [args...]
 #      (erasmus-tck is in-reactor, enabled by the `tck` Maven profile).
-#   3. Writes erasmus-tck/target/tck-report.txt.
+#   3. Writes erasmus-tck/target/tck-report.txt (totals) and prints
+#      erasmus-tck/target/tck-summary.txt (passing / failing per TCK package).
+#
+# The run is a ratchet: erasmus-tck/tck-known-failures.txt lists the TCK tests Erasmus
+# does not pass yet. A listed test that passes, or an unlisted test that fails, fails
+# the run. When a change makes TCK tests pass, remove their lines in the same commit.
 #
 set -euo pipefail
 
@@ -64,4 +69,8 @@ set -e
 } > "${REPORT_FILE}"
 
 cat "${REPORT_FILE}"
+if [ -f "${TCK_DIR}/target/tck-summary.txt" ]; then
+    echo
+    cat "${TCK_DIR}/target/tck-summary.txt"
+fi
 exit "${status}"

@@ -1,0 +1,64 @@
+name: tck
+
+# The official Jakarta Validation 3.1 TCK, run as a ratchet: erasmus-tck/tck-known-failures.txt
+# lists the TCK tests Erasmus does not pass yet; a listed test that passes, or an unlisted
+# test that fails, fails the run (see KnownFailuresRatchet).
+#
+# On a pull request it runs on EVERY commit of the PR, oldest first, then on the merge result:
+# each commit has to keep the ratchet green and record, in its own diff, the TCK tests it
+# turned green. Commits from before the ratchet existed are skipped.
+#
+# A separate workflow on purpose: pr.yml is a shared template, copied verbatim from
+# GestionProjet/workflow-templates into every producer repo.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  tck:
+    runs-on: vidocq-runner
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch Vidocq/ci action (Forgejo mirror, basic-auth)
+        shell: bash
+        env:
+          MIRROR_URL:  ${{ secrets.MIRROR_ASD_URL }}
+          MIRROR_USER: ${{ secrets.MIRROR_ASD_USER }}
+          MIRROR_PASS: ${{ secrets.MIRROR_ASD_PASSWORD }}
+        run: |
+          set -euo pipefail
+          enc_pass=$(python3 -c "import os,urllib.parse;print(urllib.parse.quote(os.environ['MIRROR_PASS'], safe=''))")
+          host="${MIRROR_URL#https://}"; host="${host#http://}"; host="${host%/}"
+          git clone --depth=1 --branch main \
+            "https://${MIRROR_USER}:${enc_pass}@${host}/Vidocq/ci.git" \
+            .ci-action
+
+      - uses: ./.ci-action/setup-maven
+
+      - name: TCK ratchet, commit by commit
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT}" == "pull_request" ]]; then
+            commits=$(git rev-list --reverse "origin/${BASE_REF}..HEAD")
+          else
+            commits=$(git rev-parse HEAD)
+          fi
+          for commit in ${commits}; do
+            git checkout -q "${commit}"
+            if [[ ! -f erasmus-tck/tck-known-failures.txt ]]; then
+              echo "skip $(git log --oneline -1) (before the TCK ratchet)"
+              continue
+            fi
+            echo "::group::TCK ratchet on $(git log --oneline -1)"
+            ./run-official-tck-bean-validation-3.1.sh
+            echo "::endgroup::"
+          done

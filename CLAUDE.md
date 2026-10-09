@@ -174,10 +174,20 @@ suite file is the TCK's own `tck-tests.xml`, unpacked from the jar, never copied
 Still to do: the signature test (`.sig` file) that `erasmus-api` must satisfy with zero
 extra public members.
 
-**Release discipline (once M8 lands):** no structural merge on `erasmus-core` /
-`erasmus-codegen-apt` / `erasmus-cdi-vauban` without TCK PASS at 100%. Any challenge
-(disabled test, documented spec-interpretation divergence) goes in a `TCK.md` with spec
-citation, test hash, and reactivation plan — created only if one is actually filed.
+**The TCK is a ratchet, from now on, on every commit.** `erasmus-tck/tck-known-failures.txt`
+lists the TCK tests Erasmus does not pass yet (`fully.qualified.TestClass#method`), and
+`KnownFailuresRatchet` (a TestNG listener) judges each run:
+
+- a listed test that fails is reported as skipped — expected, for now;
+- a listed test that **passes fails the build**: remove its line in the commit that made it
+  pass, so the diff of that commit shows which TCK tests it turned green;
+- an unlisted test that fails is a **regression** and fails the build.
+
+Never add a line to make a regression go away. `.forgejo/workflows/tck.yml` runs the ratchet
+on every commit of a pull request, oldest first. Work TDD-style against it: pick the TCK
+tests of the milestone (ROADMAP names its TCK packages), watch them fail, make them pass,
+delete their lines. A test Erasmus deliberately does not pass goes in a `TCK.md` with spec
+citation, test name, and reactivation plan — created only if one is actually filed.
 
 ## AI Principles — Collaboration on This Repository
 
