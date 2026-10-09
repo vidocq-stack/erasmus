@@ -115,7 +115,9 @@ constraints, no executable validation yet — see ROADMAP M3–M5 for each.
 
 - **Packages**: `io.vidocq.erasmus.core.internal.*` = implementation, not exported from
   `module-info.java` (discovery happens through `provides jakarta.validation.spi.ValidationProvider`,
-  which the module system allows without an export). `io.vidocq.erasmus.core.internal.metadata`
+  which the module system allows without an export — and, on a class path, through
+  `META-INF/services/jakarta.validation.spi.ValidationProvider`, which must name the same class;
+  `ClassPathBootstrapTest` runs in its own `useModulePath=false` surefire execution to prove it). `io.vidocq.erasmus.core.internal.metadata`
   = reflective metadata model (`BeanMetadata`, `PropertyMetadata`, `ConstraintDescriptorImpl`,
   accessors). `io.vidocq.erasmus.core.internal.constraints` = built-in `ConstraintValidator`
   implementations + the `BuiltinConstraints` registry.

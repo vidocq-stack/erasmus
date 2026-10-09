@@ -25,4 +25,37 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-test</id>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/ClassPathBootstrapTest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                    <!-- Issue #16: the TCK, Weld and OpenLiberty load Erasmus from a class path,
+                         where only META-INF/services is visible. Prove it outside the module path. -->
+                    <execution>
+                        <id>class-path-bootstrap</id>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <useModulePath>false</useModulePath>
+                            <includes>
+                                <include>**/ClassPathBootstrapTest.java</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

@@ -29,5 +29,8 @@ module io.vidocq.erasmus.core {
     // through the ValidationProvider service below, which the module system
     // allows without an export (only the surfaced jakarta.validation.spi
     // interface type needs to be visible, which it already is transitively).
+    // On a class path (the TCK, Weld, OpenLiberty) this clause does not exist:
+    // META-INF/services/jakarta.validation.spi.ValidationProvider names the same
+    // class there, and ClassPathBootstrapTest keeps the two in step.
     provides ValidationProvider with io.vidocq.erasmus.core.internal.ErasmusValidationProvider;
 }
