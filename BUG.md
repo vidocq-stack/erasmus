@@ -19,3 +19,11 @@ Entry format: `short id · date · symptom · minimal repro · cause hypothesis 
 - **Cause**: `ErasmusValidator.validateGraph` keeps one identity-based visited set per entry of the ordered group list, for the whole call. Bean Validation 3.1 §5.7.1: "the Jakarta Validation implementation must ignore the cascading operation if the associated object instance has already been validated in the current navigation path (starting from the root object). [...] A given navigation path cannot contain the same instance multiple times (the complete validated object graph can though)."
 - **Fix**: scope the visited set to the current path (push on descent, pop on return) instead of the whole call. Small; deferred so that M3's commits stay readable.
 - **Status**: open.
+
+## E-003 · 2026-11-14 · `erasmus-core` tests fail on a machine whose locale is not English
+
+- **Symptom**: `./mvnw test` on a French macOS fails 9 tests of `ErasmusValidatorTest`, `CustomConstraintAuthoringTest` and `LocaleMessageInterpolatorTest`: `expected: <must not be null> but was: <ne doit pas être nul>`. The CI, in English, passes.
+- **Minimal repro**: run the `erasmus-core` tests in a JVM started with `-Duser.language=fr`.
+- **Cause**: the tests compare messages with the English default bundle, and the test JVM takes its default locale from the machine. The validator is right to answer in French there; the tests assume English.
+- **Fix**: `erasmus-core`'s surefire starts the test JVM with `-Duser.language=en -Duser.country=US`, after `@{argLine}` so that JaCoCo's agent stays under the quality profile.
+- **Status**: fixed.

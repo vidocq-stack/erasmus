@@ -25,4 +25,22 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                        The tests compare messages with the English default bundle, and the JVM picks its
+                        default locale from the machine: on a French one they read "ne doit pas être nul".
+                        The locale is set when the test JVM starts (a system property set later does not
+                        change Locale.getDefault()). @{argLine} keeps JaCoCo's agent under the quality profile.
+                    -->
+                    <argLine>@{argLine} -Duser.language=en -Duser.country=US</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
